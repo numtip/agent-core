@@ -1,197 +1,143 @@
 openapi: 3.1.0
 info:
   title: Agent Core API
-  version: 0.1.0
-  description: Shared bounded-decision infrastructure API.
+  version: 0.2.0
+  description: Shared AI decision, routing, context, QA and observability API.
 servers:
   - url: https://agent.example.com
-paths:
-  /v1/health:
-    get:
-      operationId: health
-      summary: Runtime health check
-      responses:
-        "200":
-          description: Healthy
-
-  /v1/decision:
-    post:
-      operationId: decision
-      summary: Request a bounded structured decision
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DecisionRequest"
-      responses:
-        "200":
-          description: Decision result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DecisionResponse"
-        "400":
-          description: Invalid request
-        "503":
-          description: No safe decision or fallback is available
-
-  /v1/route:
-    post:
-      operationId: route
-      summary: Route a task using the bounded decision contract
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DecisionRequest"
-      responses:
-        "200":
-          description: Route decision
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DecisionResponse"
-
-  /v1/qa:
-    post:
-      operationId: qaDisposition
-      summary: Decide QA disposition from structured state
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DecisionRequest"
-      responses:
-        "200":
-          description: QA decision
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DecisionResponse"
-
 components:
+  securitySchemes:
+    ProjectId:
+      type: apiKey
+      in: header
+      name: x-agent-project
+    ProjectToken:
+      type: apiKey
+      in: header
+      name: x-agent-project-token
   schemas:
     DecisionType:
       type: string
-      enum:
-        - TASK_ROUTE
-        - CONTEXT_ROUTE
-        - TOOL_ROUTE
-        - MODEL_ROUTE
-        - SUBAGENT_ROUTE
-        - NEXT_ACTION
-        - QA_DISPOSITION
-        - HUMAN_ESCALATION
-
-    ChoiceQuestion:
-      type: object
-      additionalProperties: false
-      required: [type, instructions, criteria]
-      properties:
-        type:
-          const: choice
-        instructions:
-          type: string
-          minLength: 1
-        criteria:
-          type: object
-          minProperties: 2
-          additionalProperties:
-            type: string
-            minLength: 1
-
-    NoulQuestion:
-      type: object
-      additionalProperties: false
-      required: [type, instructions, true_when, false_when]
-      properties:
-        type:
-          const: noul
-        instructions:
-          type: string
-          minLength: 1
-        true_when:
-          type: string
-          minLength: 1
-        false_when:
-          type: string
-          minLength: 1
-
-    ScoreQuestion:
-      type: object
-      additionalProperties: false
-      required: [type, instructions, levels]
-      properties:
-        type:
-          const: score
-        instructions:
-          type: string
-          minLength: 1
-        levels:
-          type: array
-          minItems: 2
-          maxItems: 6
-          items:
-            type: string
-            minLength: 1
-
-    Question:
-      oneOf:
-        - $ref: "#/components/schemas/ChoiceQuestion"
-        - $ref: "#/components/schemas/NoulQuestion"
-        - $ref: "#/components/schemas/ScoreQuestion"
-
+      enum: [TASK_ROUTE, CONTEXT_ROUTE, TOOL_ROUTE, MODEL_ROUTE, SUBAGENT_ROUTE, NEXT_ACTION, QA_DISPOSITION, HUMAN_ESCALATION]
     DecisionRequest:
       type: object
       additionalProperties: false
       required: [project, decision_type, state, question]
       properties:
-        project:
-          type: string
-          minLength: 1
-        task_id:
-          type: string
-          minLength: 1
-        decision_type:
-          $ref: "#/components/schemas/DecisionType"
-        state:
-          type: object
-          additionalProperties: true
+        project: {type: string, minLength: 1}
+        task_id: {type: string}
+        decision_type: {$ref: "#/components/schemas/DecisionType"}
+        state: {type: object, additionalProperties: true}
         question:
-          $ref: "#/components/schemas/Question"
-        fallback_result:
-          type: string
-          minLength: 1
-
+          type: object
+          required: [type, instructions]
+          properties:
+            type: {type: string, enum: [choice, noul, score]}
+            instructions: {type: string}
+            criteria: {type: object, additionalProperties: {type: string}}
+            true_when: {type: string}
+            false_when: {type: string}
+            levels: {type: array, items: {type: string}}
+        fallback_result: {type: string}
     DecisionResponse:
       type: object
-      additionalProperties: false
-      required:
-        - decision_type
-        - result
-        - confidence
-        - reason_code
-        - fallback
-        - disposition
-        - provider_request_id
+      required: [decision_type, result, confidence, fallback, disposition]
       properties:
-        decision_type:
-          $ref: "#/components/schemas/DecisionType"
-        result:
-          type: string
-        confidence:
-          type: number
-          minimum: 0
-          maximum: 1
-        reason_code:
-          type: [string, "null"]
-        fallback:
-          type: boolean
-        disposition:
-          type: string
-          enum: [EXECUTE, REVIEW, FALLBACK]
-        provider_request_id:
-          type: [string, "null"]
+        decision_type: {$ref: "#/components/schemas/DecisionType"}
+        result: {type: string}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        reason_code: {type: [string, "null"]}
+        fallback: {type: boolean}
+        disposition: {type: string, enum: [EXECUTE, REVIEW, FALLBACK]}
+        provider_request_id: {type: [string, "null"]}
+security:
+  - ProjectId: []
+    ProjectToken: []
+paths:
+  /v1/health:
+    get:
+      security: []
+      summary: Runtime health check
+      responses:
+        "200": {description: Healthy}
+  /v1/decision:
+    post:
+      summary: Request a bounded structured decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DecisionRequest"}
+      responses:
+        "200":
+          description: Decision result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DecisionResponse"}
+        "400": {description: Invalid request}
+        "401": {description: Unauthorized}
+        "403": {description: Forbidden or project mismatch}
+        "429": {description: Rate limited}
+        "503": {description: No safe decision available}
+  /v1/route:
+    post:
+      summary: Route a task through the bounded decision contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DecisionRequest"}
+      responses:
+        "200": {description: Route result}
+  /v1/qa:
+    post:
+      summary: Decide QA disposition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DecisionRequest"}
+      responses:
+        "200": {description: QA result}
+  /v1/context:
+    post:
+      summary: Select bounded task-specific context candidates
+      responses:
+        "200": {description: Ranked context candidates}
+  /v1/subagent:
+    post:
+      summary: Plan a policy-gated deduplicated subagent task
+      responses:
+        "200": {description: Subagent plan}
+  /v1/subagent/complete:
+    post:
+      summary: Mark an active subgoal complete
+      responses:
+        "200": {description: Completion recorded}
+  /v1/advanced-route:
+    post:
+      summary: Apply security, complexity and cost-aware execution routing
+      responses:
+        "200": {description: Advanced route result}
+  /v1/projects:
+    get:
+      summary: List registered project profiles
+      responses:
+        "200": {description: Project registry}
+  /v1/metrics:
+    get:
+      summary: Return project-authenticated platform metrics
+      responses:
+        "200": {description: Metrics snapshot}
+  /control:
+    get:
+      security: []
+      summary: Human control center; protect with Cloudflare Access
+      responses:
+        "200": {description: HTML control center}
+  /v1/control-metrics:
+    get:
+      security: []
+      summary: Metrics for Cloudflare-Access-protected human control center
+      responses:
+        "200": {description: Metrics snapshot}

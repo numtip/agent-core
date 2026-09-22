@@ -11,7 +11,14 @@ const config: RuntimeConfig = {
   jevModel: "~typesafe/jev-latest",
   requestTimeoutMs: 1000,
   confidenceExecute: 0.85,
-  confidenceReview: 0.60
+  confidenceReview: 0.60,
+  env: "test",
+  authRequired: false,
+  projectKeys: {},
+  projectScopes: {},
+  rateLimitMax: 100,
+  rateLimitWindowMs: 60000,
+  auditLogPath: null
 };
 
 describe("JevProvider", () => {

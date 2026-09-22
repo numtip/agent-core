@@ -11,6 +11,9 @@ import { listProjects } from "./projects.js";
 import { evaluateHardPolicy } from "./policy.js";
 import { subagentRequestSchema, planSubagent } from "./subagent.js";
 import { dashboardHtml } from "./dashboard.js";
+import { advancedRouteSchema, advancedRoute } from "./advanced-router.js";
+import { SubgoalRegistry } from "./subgoal-registry.js";
+import { z } from "zod";
 
 export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger };
 
@@ -22,6 +25,7 @@ export function buildApp(deps:AppDependencies={}) {
   const audit=deps.audit ?? new AuditLogger(config.auditLogPath);
   const limiter=new RateLimiter(config.rateLimitMax,config.rateLimitWindowMs);
   const app=Fastify({logger:true});
+  const subgoals=new SubgoalRegistry();
 
   function guard(scope:string){
     return async (request:FastifyRequest,reply:FastifyReply)=>{
@@ -70,7 +74,26 @@ export function buildApp(deps:AppDependencies={}) {
     if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
     const policy=evaluateHardPolicy({project:parsed.data.project,operation:parsed.data.operation});
     if(policy.disposition!=="ALLOW")return {delegate:false,policy};
-    metrics.increment("subagent_plans"); return {...planSubagent(parsed.data),policy};
+    const plan=planSubagent(parsed.data);
+    if(!subgoals.register(plan.dedupe_key))return {delegate:false,duplicate:true,dedupe_key:plan.dedupe_key,policy};
+    metrics.increment("subagent_plans"); return {...plan,duplicate:false,policy};
+  });
+
+  app.post("/v1/subagent/complete",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=z.object({key:z.string().min(1)}).safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST"});
+    subgoals.complete(parsed.data.key);
+    return {completed:true,key:parsed.data.key};
+  });
+
+  app.post("/v1/advanced-route",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=advancedRouteSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    const policy=evaluateHardPolicy({project:parsed.data.project,operation:parsed.data.operation});
+    if(policy.disposition!=="ALLOW")return {tier:"HUMAN_REVIEW",reason:policy.reason,policy};
+    metrics.increment("advanced_routes");
+    return {...advancedRoute(parsed.data),policy};
   });
 
   app.get("/v1/projects",{preHandler:guard("metrics")},async()=>({projects:listProjects()}));

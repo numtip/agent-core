@@ -98,7 +98,9 @@ export function buildApp(deps:AppDependencies={}) {
 
   app.get("/v1/projects",{preHandler:guard("metrics")},async()=>({projects:listProjects()}));
   app.get("/v1/metrics",{preHandler:guard("metrics")},async()=>metrics.snapshot());
-  app.get("/control",{preHandler:guard("metrics")},async(_request,reply)=>reply.type("text/html; charset=utf-8").send(dashboardHtml()));
+  // Human control-center routes rely on Cloudflare Access at the edge; origin remains loopback-only.
+  app.get("/v1/control-metrics",async()=>metrics.snapshot());
+  app.get("/control",async(_request,reply)=>reply.type("text/html; charset=utf-8").send(dashboardHtml()));
 
   return app;
 }

@@ -8,6 +8,6 @@ export function dashboardHtml(): string {
 <div class="card"><h2>Health</h2><pre id="health">Loading…</pre></div>
 <div class="card"><h2>Metrics</h2><pre id="metrics">Loading…</pre></div>
 <small>Phase 8 MVP — API-backed observability, not a public dashboard.</small>
-<script>async function load(id,url){try{const r=await fetch(url,{credentials:"same-origin"});document.getElementById(id).textContent=JSON.stringify(await r.json(),null,2)}catch(e){document.getElementById(id).textContent=String(e)}}load("health","/v1/health");load("metrics","/v1/metrics");</script>
+<script>async function load(id,url){try{const r=await fetch(url,{credentials:"same-origin"});document.getElementById(id).textContent=JSON.stringify(await r.json(),null,2)}catch(e){document.getElementById(id).textContent=String(e)}}load("health","/v1/health");load("metrics","/v1/control-metrics");</script>
 </body></html>`;
 }

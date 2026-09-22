@@ -1,0 +1,23 @@
+schema_version: 1
+project:
+  id: REPLACE_PROJECT_ID
+  type: REPLACE_PROJECT_TYPE
+platform:
+  enabled: true
+  endpoint: https://agent.example.com
+features:
+  task_route: true
+  context_route: true
+  tool_route: true
+  model_route: true
+  subagent_route: true
+  qa_disposition: true
+  human_escalation: true
+context:
+  strategy: task_specific
+  max_candidates: 40
+fallback:
+  enabled: true
+policy:
+  production: human_approval
+  destructive: ask

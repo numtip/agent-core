@@ -12,6 +12,13 @@ describe("hard policy",()=>{
   it("requires approval for production writes",()=>{
     expect(evaluateHardPolicy({project:"goffice2026",operation:"WRITE",environment:"production"}).disposition).toBe("ASK");
   });
+  it("supports Thai context tokens",()=>{
+    const result=selectContext({project:"goffice2026",query:"กราฟ น้ำ",limit:1,candidates:[
+      {id:"thai",path:"src/WaterChart.tsx",text:"กราฟการใช้น้ำรายเดือน"},
+      {id:"other",path:"src/Auth.ts",text:"ระบบเข้าสู่ระบบ"}
+    ]});
+    expect(result.selected[0].id).toBe("thai");
+  });
 });
 
 describe("context selection",()=>{

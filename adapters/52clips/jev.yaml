@@ -1,0 +1,15 @@
+schema_version: 1
+project:
+  id: 52clips
+  type: media-production
+features:
+  next_action: true
+  qa_disposition: true
+  subagent_route: true
+  context_route: true
+policy:
+  production_release: human_approval
+  destructive: ask
+context:
+  strategy: task_specific
+  max_candidates: 40

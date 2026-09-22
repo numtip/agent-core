@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Shared AI decision infrastructure for current and future projects.",
   "bin": {
-    "agent": "dist/cli.js"
+    "agent": "dist/src/cli.js"
   },
   "engines": {
     "node": ">=22"
@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "cli": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"

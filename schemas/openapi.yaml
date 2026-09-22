@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: Agent Core API
+  version: 0.1.0
+  description: Shared decision infrastructure API.
+servers:
+  - url: https://agent.example.com
+paths:
+  /v1/health:
+    get:
+      operationId: health
+      summary: Runtime health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+
+  /v1/decision:
+    post:
+      operationId: decision
+      summary: Request a bounded structured decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+      responses:
+        "200":
+          description: Decision result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionResponse"
+
+  /v1/route:
+    post:
+      operationId: route
+      summary: Route a task to an execution path
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+      responses:
+        "200":
+          description: Route result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionResponse"
+
+  /v1/qa:
+    post:
+      operationId: qaDisposition
+      summary: Decide QA disposition from structured state
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+      responses:
+        "200":
+          description: QA disposition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionResponse"
+
+components:
+  schemas:
+    DecisionType:
+      type: string
+      enum:
+        - TASK_ROUTE
+        - CONTEXT_ROUTE
+        - TOOL_ROUTE
+        - MODEL_ROUTE
+        - SUBAGENT_ROUTE
+        - NEXT_ACTION
+        - QA_DISPOSITION
+        - HUMAN_ESCALATION
+
+    DecisionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - project
+        - decision_type
+        - state
+      properties:
+        project:
+          type: string
+          minLength: 1
+        task_id:
+          type: [string, "null"]
+        decision_type:
+          $ref: "#/components/schemas/DecisionType"
+        state:
+          type: object
+          additionalProperties: true
+        options:
+          type: array
+          items:
+            type: string
+
+    DecisionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - decision_type
+        - result
+        - confidence
+      properties:
+        decision_type:
+          $ref: "#/components/schemas/DecisionType"
+        result:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        reason_code:
+          type: [string, "null"]
+        fallback:
+          type: boolean
+          default: false

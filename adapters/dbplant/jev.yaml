@@ -1,0 +1,11 @@
+schema_version: 1
+project:
+  id: dbplant
+  type: database-production
+features:
+  task_route: true
+  context_route: true
+policy:
+  default: read_only
+  database_write: human_approval
+  destructive: deny

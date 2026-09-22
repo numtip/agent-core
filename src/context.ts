@@ -15,7 +15,7 @@ export const contextRequestSchema = z.object({
 export type ContextRequest = z.infer<typeof contextRequestSchema>;
 
 function tokenize(text: string): Set<string> {
-  return new Set(text.toLowerCase().split(/[^\\p{L}\\p{N}_-]+/u).filter((t)=>t.length>=2));
+  return new Set(text.toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((t)=>t.length>=2));
 }
 
 export function selectContext(input: ContextRequest) {

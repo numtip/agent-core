@@ -1,0 +1,13 @@
+schema_version: 1
+project:
+  id: goffice2026
+  type: web-application
+features:
+  task_route: true
+  tool_route: true
+  model_route: true
+  subagent_route: true
+  qa_disposition: true
+  context_route: true
+policy:
+  production_deploy: human_approval

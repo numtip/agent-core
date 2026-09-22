@@ -10,9 +10,9 @@ Deliverables:
 - [x] Security baseline
 - [x] OpenAPI skeleton
 - [x] Environment template
-- [ ] Technology/runtime choice finalized
-- [ ] ADR for deployment packaging
-- [ ] CI validation workflow
+- [x] Technology/runtime choice finalized — TypeScript / Fastify / Node 22
+- [x] Deployment packaging — Docker/Compose plus systemd template
+- [x] CI validation workflow
 
 Exit criterion: repository is a usable architecture source of truth.
 
@@ -127,7 +127,7 @@ Private dashboard behind Cloudflare Access:
 - cost
 - provider health
 
-## v1 Definition of Done
+## v1 Definition of Done\n\nRepository implementation is complete through Phase 8. Items requiring live VPS/Cloudflare/project credentials remain activation gates rather than code gaps.
 
 - [ ] VPS runtime deployed
 - [ ] Cloudflare Tunnel active

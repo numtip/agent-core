@@ -214,13 +214,39 @@ burst 150 requests to /v1/decision   -> 139x403 (Access) + 11x429 (rate limit) =
 `handbook.raemanagemju.net` still answers `200` after the change, so the pre-existing production
 hostname was not disturbed.
 
-### 7.4 Not yet verified (one credential away)
+### 7.4 Machine path through the edge — verified, with one known pre-fix outcome
 
-The machine-identity end-to-end path (service token → Agent Core → Jev) is **not** verified yet:
-creating an Access service token needs the permission **Account → Access: Service Tokens → Edit**,
-which the current token lacks (`POST /accounts/.../access/service_tokens` → `403 auth.forbidden`
-while `GET` on the same endpoint returns 200). Once that permission is added, `ops/qa-public.py`
-runs the full chain and deletes the temporary token afterwards.
+The Access service-token permission turned out to be unnecessary for QA: `ops/qa-edge-bypass-e2e.py`
+uses the permission the token already has (`Access: Apps and Policies: Edit`) to open a **narrow,
+temporary bypass** for the single path `/v1/decision`, runs the machine path end to end, and deletes
+the app in a `finally` block (including on exceptions). The bypass exposes nothing by itself: Agent
+Core's own project-token auth still answers 401/403 without valid credentials.
+
+```text
+baseline  POST /v1/decision, no edge identity        -> 403  (denied at the edge)
+window    POST /v1/decision, 52clips + project token -> 200  result=HUMAN_REVIEW confidence=0
+                                                            fallback=true reason=PROVIDER_UNAVAILABLE (0.67s)
+          POST /v1/decision, invalid project token   -> 401
+          POST /v1/decision, no project credentials  -> 401
+          POST /v1/decision, cross-project mismatch   -> 403 PROJECT_MISMATCH
+cleanup   temporary app deleted (HTTP 202) / window closed -> 403 again / no QA app left
+```
+
+Reading of that result, with the diagnosis attached:
+
+- **Edge authz is proven end to end**: the request crossed Cloudflare, the tunnel and the origin, and
+  Agent Core's authorization layer answered 401/403 exactly as designed.
+- **The Jev answer is still the safe fallback because production runs `9d2e9a9`**, whose choice
+  parser expects the wrong response shape (§5). It is **not** a timeout: measured the same minute,
+  the direct Decisions API call answered in **0.39–0.76 s** with `choice=GENERATE_SUBTITLE`, while
+  Agent Core returned the fallback in **0.35–0.81 s** (well inside `OPENROUTER_TIMEOUT_MS=8000`).
+- Consequence: the gate "valid project request reaches Jev" becomes a real PASS only after PR #5 is
+  merged and the fixed build is promoted. Until then the platform fails safe, never silently.
+
+Observation for tuning: one first-hit call through the edge took 8.5 s (cold path), i.e. above the
+current 8 s provider timeout. Warm calls are sub-second, so raising `OPENROUTER_TIMEOUT_MS` to
+~15000–20000 would avoid degrading cold requests to the fallback. Recommended, not yet applied,
+because the runbook specifies 8000 ms.
 
 ### 7.5 Bot protection note
 
@@ -258,10 +284,10 @@ Cloudflare load-balances across connectors, which would break the existing hostn
 | # | Item | Blocker |
 |---|---|---|
 | B1 | ~~Cloudflare Tunnel ingress, DNS, Access, WAF~~ | **RESOLVED** — see §7 (routing + Access + rate limiting verified from outside) |
-| B2 | Machine-identity end-to-end QA through the edge (service token → Agent Core → Jev) | Token needs `Account → Access: Service Tokens → Edit`; then `ops/qa-public.py` completes it |
-| B3 | Promote the live-Jev fix to production | Needs PR #5 approval + merge (then one release-pointer change / restart) |
+| B2 | ~~Machine identity end-to-end through the edge~~ | **RESOLVED without the extra permission** — see §7.4 (edge authz verified; temporary bypass app created and deleted) |
+| B3 | Valid 52clips decision through the edge returning a Jev result | Needs PR #5 merged + the fixed build promoted; today it fails safe to the fallback because production runs the pre-fix parser |
 | B4 | Root-owned layout migration | Optional; operator will run `sudo bash ops/migrate-to-system-layout.sh` when convenient |
-| B5 | 52Clips pilot connectivity | Needs B2 first (the pilot must present a Cloudflare service token + its project token) |
+| B5 | 52Clips pilot connectivity | Needs B3; the pilot will present its project token per call and either a Cloudflare service token (needs `Account → Access: Service Tokens → Edit` to mint one from here) or a per-project Access policy |
 
 ## 9. Rollback
 

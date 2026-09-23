@@ -33,9 +33,12 @@ See [PRODUCTION_ACTIVATION_REPORT.md](PRODUCTION_ACTIVATION_REPORT.md) for full 
 | Runtime on VPS `ubantu24` (10.1.254.237) | ACTIVE — systemd user unit `agent-core.service`, `127.0.0.1:8787` only |
 | Local production QA (`ops/qa-local.py`) | PASS — 20/20 (health, 401, 403 scope/project, fallback, 503, 429, audit, control surface) |
 | Project identities (5) | PROVISIONED host-side, secrets never in Git |
-| OpenRouter/Jev live decisions | VERIFIED ON FIX BRANCH — live `choice`/`noul`/`score` PASS against `~typesafe/jev-latest` (PR #5, awaiting merge); production `9d2e9a9` still degrades live `choice` to the safe fallback because the response parser expected the wrong shape |
-| Cloudflare Tunnel / DNS / Access / WAF | **LIVE** — public hostname `agent.raemanagemju.net` routed (remote-managed tunnel), 4 Access apps, 1 zone rate-limit rule; verified from outside: health 200, `/control` 302, unauthenticated machine call 403, burst → 429. Machine-identity E2E pending one token permission. |
-| 52Clips pilot connectivity | BLOCKED — depends on the machine-identity E2E (service token) |
+| OpenRouter/Jev live decisions | **LIVE IN PRODUCTION** — parser fix promoted (release `188de03`, PR #5 merged), live QA 13/13: choice `GENERATE_SUBTITLE` conf 0.99, noul conf 0.98, score label conf 0.98, latency 0.56–0.95 s |
+| Cloudflare Tunnel / DNS / Access / WAF | **LIVE** — public hostname routed, 4 Access apps, 1 zone rate-limit rule; edge QA: health 200, `/control` 302, unauthenticated 403, burst → 429, machine path 9/9 PASS |
+| 52Clips pilot connectivity | **PROVEN through the edge** — a real `52clips` decision returned `GENERATE_SUBTITLE` conf 0.97 through Cloudflare; a permanent Cloudflare service token for the pilot is not minted yet (needs `Account → Access: Service Tokens → Edit`, or creation in the dashboard) |
+
+Release history: `188de03` (current, includes the response-shape fix) ← `9d2e9a9` (previous, kept for
+rollback: `ln -sfn releases/9d2e9a9 ~/agent-core/current && systemctl --user restart agent-core.service`).
 
 Runtime note: the tunnel on this host is **remote-managed** — `/etc/cloudflared/config.yml` is used
 for credentials only, and the dashboard's public-hostname list decides routing (see report §7.1).

@@ -1,8 +1,8 @@
 # Production Activation Report — Agent Core
 
-Status: **PARTIAL — runtime active on the target VPS and the Cloudflare edge layer is live
-(routing, Access, rate limiting verified from outside). Still open: the machine-identity end-to-end
-call through the edge (one token permission away) and promotion of the verified live-Jev adapter fix.**
+Status: **PRODUCTION ACTIVE — runtime, edge layer and live Jev decisions all verified on the promoted
+release `188de03`. One non-blocking gap: no permanent Cloudflare Access service token exists yet for
+machine clients (pilot) — everything else on the QA checklist has been exercised end to end.**
 
 Nothing here is claimed as a production gate pass unless the evidence is stated. Items marked BLOCKED
 were not attempted past their gate.
@@ -214,39 +214,37 @@ burst 150 requests to /v1/decision   -> 139x403 (Access) + 11x429 (rate limit) =
 `handbook.raemanagemju.net` still answers `200` after the change, so the pre-existing production
 hostname was not disturbed.
 
-### 7.4 Machine path through the edge — verified, with one known pre-fix outcome
+### 7.4 Machine path through the edge — verified end to end
 
-The Access service-token permission turned out to be unnecessary for QA: `ops/qa-edge-bypass-e2e.py`
-uses the permission the token already has (`Access: Apps and Policies: Edit`) to open a **narrow,
-temporary bypass** for the single path `/v1/decision`, runs the machine path end to end, and deletes
-the app in a `finally` block (including on exceptions). The bypass exposes nothing by itself: Agent
-Core's own project-token auth still answers 401/403 without valid credentials.
+`ops/qa-edge-bypass-e2e.py` uses the permission the token already has
+(`Access: Apps and Policies: Edit`) to open a **narrow, temporary bypass** for the single path
+`/v1/decision`, run the machine path end to end, and delete the app in a `finally` block (including
+on exceptions, with a retry loop for Access propagation). The bypass exposes nothing by itself:
+Agent Core's own project-token auth still answers 401/403 without valid credentials.
+
+Run against the promoted release `188de03` (9/9 PASS):
 
 ```text
 baseline  POST /v1/decision, no edge identity        -> 403  (denied at the edge)
-window    POST /v1/decision, 52clips + project token -> 200  result=HUMAN_REVIEW confidence=0
-                                                            fallback=true reason=PROVIDER_UNAVAILABLE (0.67s)
+window    POST /v1/decision, 52clips + project token -> 200  result=GENERATE_SUBTITLE confidence=0.97
+                                                            disposition=EXECUTE fallback=false
+                                                            provider_request_id=gen-dec-…  latency=1.12s
           POST /v1/decision, invalid project token   -> 401
           POST /v1/decision, no project credentials  -> 401
-          POST /v1/decision, cross-project mismatch   -> 403 PROJECT_MISMATCH
+          POST /v1/decision, cross-project mismatch  -> 403 PROJECT_MISMATCH
 cleanup   temporary app deleted (HTTP 202) / window closed -> 403 again / no QA app left
 ```
 
-Reading of that result, with the diagnosis attached:
+So the full path `client → Cloudflare (Access) → Tunnel → 127.0.0.1:8787 → Agent Core → OpenRouter/Jev`
+is proven with a real decision result, not just a reachability check.
 
-- **Edge authz is proven end to end**: the request crossed Cloudflare, the tunnel and the origin, and
-  Agent Core's authorization layer answered 401/403 exactly as designed.
-- **The Jev answer is still the safe fallback because production runs `9d2e9a9`**, whose choice
-  parser expects the wrong response shape (§5). It is **not** a timeout: measured the same minute,
-  the direct Decisions API call answered in **0.39–0.76 s** with `choice=GENERATE_SUBTITLE`, while
-  Agent Core returned the fallback in **0.35–0.81 s** (well inside `OPENROUTER_TIMEOUT_MS=8000`).
-- Consequence: the gate "valid project request reaches Jev" becomes a real PASS only after PR #5 is
-  merged and the fixed build is promoted. Until then the platform fails safe, never silently.
+Historical note (kept for accuracy): before PR #5 was merged this same test returned Agent Core's safe
+fallback in 0.35–0.81 s while a direct provider call answered in 0.39–0.76 s — proving the failure was
+the response-shape parser, not a timeout or a Cloudflare problem.
 
-Observation for tuning: one first-hit call through the edge took 8.5 s (cold path), i.e. above the
-current 8 s provider timeout. Warm calls are sub-second, so raising `OPENROUTER_TIMEOUT_MS` to
-~15000–20000 would avoid degrading cold requests to the fallback. Recommended, not yet applied,
-because the runbook specifies 8000 ms.
+Tuning observation: one first-hit call through the edge took 8.5 s (cold path), above the configured
+`OPENROUTER_TIMEOUT_MS=8000`. Warm calls are sub-second. Raising the timeout to ~15000–20000 would
+remove the cold-path degradation to the fallback; not applied, because the runbook specifies 8000.
 
 ### 7.5 Bot protection note
 
@@ -258,7 +256,22 @@ service token. `/v1/*` and `/control` are unaffected because Access answers thos
 
 
 
-### 7.6 Tooling added for this layer
+### 7.6b Promotion record
+
+| Item | Value |
+|---|---|
+| Promoted release | `188de03` (`main` after PR #5 merge, `188de03ce9b76b3d11ccf14c6f7cdb41375594f6`) |
+| Previous release (kept for rollback) | `9d2e9a9` |
+| Promotion tool | `ops/promote-release.sh` (gates → stage → repoint `current` → restart → verify) |
+| Gate results at promotion | `npm audit --omit=dev --audit-level=high` → 0 vulnerabilities · `npm test` → 24/24 · `npm run build` → clean |
+| Live QA after promotion | **13/13 PASS** — choice `GENERATE_SUBTITLE` conf 0.99 · noul conf 0.98 · score label `partial` conf 0.98 · provider contracts (choice/noul/score) valid · auth failure = HTTP 401 · network failure = transport error · latency 0.56–0.95 s |
+| Edge QA after promotion | **9/9 PASS** (§7.4) |
+
+Note recorded for the future: the promotion script's first verification ran ~3 s after the restart and
+briefly observed the previous process still serving; `ops/promote-release.sh` now restores the caller's
+git branch on exit, and the verification is repeated manually if it reads the old build.
+
+### 7.7 Tooling added for this layer
 
 - `ops/store-cloudflare-token.sh` — prompt-based token entry (never echoes the value, mode 600).
 - `ops/cloudflare-edge.py --plan|--verify|--apply` — token verify, zone/account resolution, DNS
@@ -285,9 +298,10 @@ Cloudflare load-balances across connectors, which would break the existing hostn
 |---|---|---|
 | B1 | ~~Cloudflare Tunnel ingress, DNS, Access, WAF~~ | **RESOLVED** — see §7 (routing + Access + rate limiting verified from outside) |
 | B2 | ~~Machine identity end-to-end through the edge~~ | **RESOLVED without the extra permission** — see §7.4 (edge authz verified; temporary bypass app created and deleted) |
-| B3 | Valid 52clips decision through the edge returning a Jev result | Needs PR #5 merged + the fixed build promoted; today it fails safe to the fallback because production runs the pre-fix parser |
+| B3 | ~~Valid 52clips decision through the edge returning a Jev result~~ | **RESOLVED** — PR #5 merged, release `188de03` promoted, edge E2E `GENERATE_SUBTITLE` conf 0.97 EXECUTE (§7.4/§7.6b) |
 | B4 | Root-owned layout migration | Optional; operator will run `sudo bash ops/migrate-to-system-layout.sh` when convenient |
-| B5 | 52Clips pilot connectivity | Needs B3; the pilot will present its project token per call and either a Cloudflare service token (needs `Account → Access: Service Tokens → Edit` to mint one from here) or a per-project Access policy |
+| B5 | Permanent Cloudflare identity for machine clients | No long-lived Access service token exists yet: minting one from here needs `Account → Access: Service Tokens → Edit` (or create it in the dashboard: Zero Trust → Access → Service Auth → Service Tokens). Until then the pilot path is proven via the QA bypass, and per-project Access policies are the alternative |
+| B6 | `OPENROUTER_TIMEOUT_MS` tuning | Cold first-hit measured at 8.5 s vs the configured 8000 ms; raising it to 15000–20000 is recommended and not yet applied (runbook says 8000) |
 
 ## 9. Rollback
 

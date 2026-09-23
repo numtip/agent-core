@@ -52,8 +52,56 @@ function buildQuestion(request: DecisionRequest): JsonObject {
   };
 }
 
-function parseChoice(answer: JsonObject): JevDecision {
-  const choice = asObject(answer.choice);
+function optionalProbability(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    return null;
+  }
+  return value;
+}
+
+function levelLabel(answer: JsonObject, request: DecisionRequest, index: string): string | null {
+  const legend = answer.legend;
+  if (legend && typeof legend === "object" && !Array.isArray(legend)) {
+    const entry = (legend as JsonObject)[index];
+    if (typeof entry === "string") return entry;
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const description = (entry as JsonObject).description;
+      if (typeof description === "string") return description;
+    }
+  }
+  if (request.question.type === "score") {
+    const fromRequest = request.question.levels[Number(index)];
+    if (typeof fromRequest === "string") return fromRequest;
+  }
+  return null;
+}
+
+// Live Decisions API shape (~typesafe/jev-latest, verified 2026-09-23):
+//   choice -> { type: "choice", choice: "<label>", probabilities: { label: p }, confidence: p }
+//   noul   -> { type: "noul", noul: p }
+//   score  -> { type: "score", score: <0..n expected level>, legend: { index: label },
+//               probabilities: { index: p }, confidence: p }
+function parseChoice(answer: JsonObject, _request: DecisionRequest): JevDecision {
+  const raw = answer.choice;
+
+  if (typeof raw === "string") {
+    const probabilities = answer.probabilities;
+    let confidence = optionalProbability(answer.confidence);
+    if (
+      confidence === null &&
+      probabilities &&
+      typeof probabilities === "object" &&
+      !Array.isArray(probabilities)
+    ) {
+      confidence = optionalProbability((probabilities as JsonObject)[raw]);
+    }
+    if (confidence === null) {
+      throw new Error("Jev choice answer carries no usable confidence");
+    }
+    return { result: raw, confidence, providerRequestId: null };
+  }
+
+  const choice = asObject(raw);
   const entries = Object.entries(choice).map(([key, value]) => [
     key,
     probability(value, key)
@@ -81,18 +129,41 @@ function parseNoul(answer: JsonObject): JevDecision {
   };
 }
 
-function parseScore(answer: JsonObject): JevDecision {
+function parseScore(answer: JsonObject, request: DecisionRequest): JevDecision {
+  const probabilities = answer.probabilities;
+  if (probabilities && typeof probabilities === "object" && !Array.isArray(probabilities)) {
+    const entries = Object.entries(probabilities).map(([key, value]) => [
+      key,
+      probability(value, key)
+    ] as const);
+
+    if (entries.length > 0) {
+      entries.sort((a, b) => b[1] - a[1]);
+      const [index, topProbability] = entries[0];
+      const label = levelLabel(answer, request, index);
+      if (label) {
+        return {
+          result: label,
+          confidence: optionalProbability(answer.confidence) ?? topProbability,
+          providerRequestId: null
+        };
+      }
+    }
+  }
+
   if (typeof answer.score !== "number" || !Number.isFinite(answer.score)) {
     throw new Error("Invalid Jev score answer");
   }
 
-  // Some Decisions API responses expose an optional probability/confidence.
-  // Treat absence as 1.0 only for transport parsing; policy consumers should
-  // calibrate score decisions independently before autonomous execution.
+  // The Decisions API returns `score` as an expected level on an internal scale, so it is
+  // only meaningful together with a calibrated confidence. When the provider supplies no
+  // confidence, we must not invent certainty: report the failure instead of returning a
+  // fabricated 1.0 that would be promoted to an EXECUTE disposition.
   const confidence =
-    typeof answer.probability === "number"
-      ? probability(answer.probability, "score")
-      : 1;
+    optionalProbability(answer.confidence) ?? optionalProbability(answer.probability);
+  if (confidence === null) {
+    throw new Error("Jev score answer carries no calibrated confidence");
+  }
 
   return {
     result: String(answer.score),
@@ -146,9 +217,9 @@ export class JevProvider {
       const answer = asObject(answers.decision);
 
       let parsed: JevDecision;
-      if (request.question.type === "choice") parsed = parseChoice(answer);
+      if (request.question.type === "choice") parsed = parseChoice(answer, request);
       else if (request.question.type === "noul") parsed = parseNoul(answer);
-      else parsed = parseScore(answer);
+      else parsed = parseScore(answer, request);
 
       return {
         ...parsed,

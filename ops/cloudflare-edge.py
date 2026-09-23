@@ -29,6 +29,9 @@ import urllib.request
 ZONE_NAME = "raemanagemju.net"
 HOSTNAME = "agent.raemanagemju.net"
 TUNNEL_ID = "98cc1f81-c265-4c44-a61d-5271a2cad897"  # existing shared tunnel on host 237
+# Account id read locally from /etc/cloudflared/<tunnel>.json ("AccountTag"), so the token does
+# not need any account-listing permission. Override with CF_ACCOUNT_ID.
+DEFAULT_ACCOUNT_ID = "54b79895714df72e9b76b99452813c79"
 ORIGIN = "http://127.0.0.1:8787"
 ACCESS_ALLOW_EMAIL = os.environ.get("ACCESS_ALLOW_EMAIL", "raemju@gmail.com")
 TOKEN_FILE = os.path.expanduser("~/.config/agent-core/cloudflare.token")
@@ -154,23 +157,64 @@ def main() -> None:
         return
 
     # ---- apply / verify path ----
-    st, res = api("GET", f"/zones?name={ZONE_NAME}", apply=True)
-    step("zone lookup", res, True, f"http={st}")
-    if not ok(res) or not res.get("result"):
-        print("FAIL: cannot read zone — token likely missing Zone:Zone:Read")
-        return
-    zone_id = res["result"][0]["id"]
-    print(f"zone_id: {zone_id}")
+    if not do_apply and args.verify:
+        st, res = api("GET", "/user/tokens/verify", apply=True)
+        print(f"token verify: http={st} status={(res.get('result') or {}).get('status') or first_error(res)}")
+        if not ok(res):
+            return
 
-    account_id = os.environ.get("CF_ACCOUNT_ID", "").strip()
-    if not account_id:
+    zone_id = os.environ.get("CF_ZONE_ID", "").strip()
+    if zone_id:
+        print(f"zone_id: {zone_id} (from CF_ZONE_ID — skipped the zone lookup, so Zone:Zone:Read is not required)")
+    else:
+        st, res = api("GET", f"/zones?name={ZONE_NAME}", apply=True)
+        step("zone lookup", res, True, f"http={st}")
+        if not ok(res) or not res.get("result"):
+            print("FAIL: cannot read zone — token needs Zone:Zone:Read, "
+                  "or export CF_ZONE_ID (Zone ID is shown on the zone Overview page)")
+            return
+        zone_id = res["result"][0]["id"]
+        print(f"zone_id: {zone_id}")
+
+    if args.verify:
+        st, res = api("GET", f"/zones/{zone_id}/dns_records?name={HOSTNAME}", apply=True)
+        recs = (res.get("result") or []) if ok(res) else []
+        print(f"dns {HOSTNAME}: http={st} records={len(recs)} "
+              f"{[(r.get('type'), r.get('content'), r.get('proxied')) for r in recs]}")
+
+        account_id = os.environ.get("CF_ACCOUNT_ID", "").strip() or DEFAULT_ACCOUNT_ID
+        st, res = api("GET", f"/accounts/{account_id}/access/apps", apply=True)
+        apps = (res.get("result") or []) if ok(res) else []
+        mine = [a for a in apps if str(a.get("domain", "")).startswith(HOSTNAME)]
+        print(f"access apps on {HOSTNAME}: {len(mine)}")
+        for a in mine:
+            st, res = api("GET", f"/accounts/{account_id}/access/apps/{a['id']}/policies", apply=True)
+            pols = (res.get("result") or []) if ok(res) else []
+            dec = ", ".join(f"{p.get('name')}={p.get('decision')}" for p in pols)
+            print(f"  - {a.get('name')} | {a.get('domain')} | session={a.get('session_duration')} "
+                  f"| policies: {dec or 'NONE'}")
+
+        st, res = api("GET", f"/zones/{zone_id}/rulesets/phases/http_ratelimit/entrypoint", apply=True)
+        rules = (res.get("result") or {}).get("rules") or []
+        print(f"rate limit rules: {len(rules)}")
+        for r in rules:
+            rl = r.get("ratelimit") or {}
+            print(f"  - {r.get('description')} | {rl.get('requests_per_period')}/"
+                  f"{rl.get('period')}s per {rl.get('characteristics')} | {r.get('action')} "
+                  f"| enabled={r.get('enabled')}")
+        return
+
+    account_id = os.environ.get("CF_ACCOUNT_ID", "").strip() or DEFAULT_ACCOUNT_ID
+    if account_id:
+        print(f"account_id: {account_id}")
+    else:
         st, res = api("GET", "/accounts", apply=True)
         if not ok(res) or not res.get("result"):
             print("WARN: cannot auto-discover account id — set CF_ACCOUNT_ID")
             account_id = ""
         else:
             account_id = res["result"][0]["id"]
-    print(f"account_id: {account_id or '(missing)'}")
+        print(f"account_id: {account_id or '(missing)'}")
 
     # 1. DNS route to the existing tunnel
     st, res = api("GET", f"/zones/{zone_id}/dns_records?name={HOSTNAME}", apply=True)
@@ -199,13 +243,16 @@ def main() -> None:
         apps = (res.get("result") or []) if ok(res) else []
         by_name = {a.get("name"): a for a in apps}
 
-        for app_name, domain, duration in [
-            ("Agent Core — Human Control Center", f"{HOSTNAME}/control", "8h"),
-            ("Agent Core — Machine API", f"{HOSTNAME}/v1/*", "24h"),
-        ]:
+        app_specs = [
+            ("Agent Core — Human Control Center", f"{HOSTNAME}/control", "8h", "human"),
+            ("Agent Core — Control Metrics", f"{HOSTNAME}/v1/control-metrics", "8h", "human"),
+            ("Agent Core — Health Probe", f"{HOSTNAME}/v1/health", "8h", "public"),
+            ("Agent Core — Machine API", f"{HOSTNAME}/v1/*", "24h", "machine"),
+        ]
+        for app_name, domain, duration, kind in app_specs:
             if app_name in by_name:
                 app = by_name[app_name]
-                step(f"Access app exists: {app_name}", {"success": True}, True, app["id"])
+                step(f"Access app exists: {app_name}", {"success": True}, True, str(app.get("id", "")))
             else:
                 st, res = api("POST", f"/accounts/{account_id}/access/apps", {
                     "name": app_name, "type": "self_hosted", "domain": domain,
@@ -219,46 +266,50 @@ def main() -> None:
             st, res = api("GET", f"/accounts/{account_id}/access/apps/{app_id}/policies", apply=True)
             pol_names = {p.get("name") for p in (res.get("result") or [])} if ok(res) else set()
 
-            want = []
-            if app_name.endswith("Control Center"):
+            if kind == "human":
                 want = [
                     ("prinya-only", "allow", [{"email": {"email": ACCESS_ALLOW_EMAIL}}]),
                     ("deny-everyone-else", "deny", [{"everyone": {}}]),
                 ]
+            elif kind == "public":
+                # Liveness probe only: bypass Access for the exact /v1/health path. The payload
+                # (status, service, version, auth_required, provider_configured, jev_model) is
+                # non-sensitive and the endpoint performs no work.
+                want = [("public-health-bypass", "bypass", [{"everyone": {}}])]
             else:
                 want = [("service-tokens-only", "non_identity",
                          [{"any_valid_service_token": {}}])]
             for pname, decision, include in want:
                 if pname in pol_names:
-                    step(f"policy exists: {pname}", {"success": True}, True)
+                    step(f"policy exists: {app_name} / {pname}", {"success": True}, True)
                     continue
                 st, res = api("POST", f"/accounts/{account_id}/access/apps/{app_id}/policies", {
                     "name": pname, "decision": decision, "include": include}, apply=True)
-                step(f"policy created: {pname}", res, True, f"http={st}")
+                step(f"policy created: {app_name} / {pname}", res, True, f"http={st}")
 
-        # 3. Control-metrics path: covered by the Control Center app only for /control
-        st, res = api("POST", f"/accounts/{account_id}/access/apps", {
-            "name": "Agent Core — Control Metrics", "type": "self_hosted",
-            "domain": f"{HOSTNAME}/v1/control-metrics", "session_duration": "8h"}, apply=True)
-        if ok(res):
-            app_id = (res.get("result") or {}).get("id")
-            api("POST", f"/accounts/{account_id}/access/apps/{app_id}/policies", {
-                "name": "prinya-only", "decision": "allow",
-                "include": [{"email": {"email": ACCESS_ALLOW_EMAIL}}]}, apply=True)
-            api("POST", f"/accounts/{account_id}/access/apps/{app_id}/policies", {
-                "name": "deny-everyone-else", "decision": "deny",
-                "include": [{"everyone": {}}]}, apply=True)
-            step("Access app created: Agent Core — Control Metrics", res, True)
-        else:
-            step("Access app Control Metrics", res, True, f"http={st} "
-                 "(may already exist — check dashboard)")
-
-    # 4. Zone rate limiting rules
+    # 4. Zone rate limiting rules (Free plan allows only ONE rule in this phase, so the
+    #    per-path ceilings are merged into a single volumetric backstop when required).
     st, res = api("GET", f"/zones/{zone_id}/rulesets/phases/http_ratelimit/entrypoint", apply=True)
     current_rules = []
     if ok(res):
         current_rules = (res.get("result") or {}).get("rules") or []
     existing_names = {r.get("description") or r.get("name") for r in current_rules}
+
+    def rule_body(desc: str, prefixes: list[str], period: int, count: int, mitigation: int) -> dict:
+        return {
+            "description": desc,
+            "action": "block",
+            "enabled": True,
+            "expression": "(" + " or ".join(
+                f'starts_with(http.request.uri.path, "{p}")' for p in prefixes
+            ) + ")",
+            "ratelimit": {
+                "characteristics": ["cf.colo.id", "ip.src"],  # cf.colo.id is required at zone level
+                "period": period,
+                "requests_per_period": count,
+                "mitigation_timeout": mitigation,
+            },
+        }
 
     new_rules = [r for r in RATE_RULES
                  if r["description"] not in existing_names and r["name"] not in existing_names]
@@ -266,24 +317,55 @@ def main() -> None:
         step("rate limit rules already present", {"success": True}, True,
              f"{len(current_rules)} rule(s) in entrypoint")
     else:
-        rules = current_rules + [{
-            "description": r["description"],
-            "action": "block",
-            "enabled": True,
-            "expression": "(" + " or ".join(
-                f'starts_with(http.request.uri.path, "{p}")' for p in r["path_prefixes"]
-            ) + ")",
-            "ratelimit": {
-                "characteristics": ["ip.src"],
-                "period": r["period_seconds"],
-                "requests_per_period": r["requests_per_period"],
-                "mitigation_timeout": r["mitigation_timeout"],
-            },
-        } for r in new_rules]
+        rules = current_rules + [rule_body(r["description"], r["path_prefixes"],
+                                           r["period_seconds"], r["requests_per_period"],
+                                           r["mitigation_timeout"]) for r in new_rules]
         st, res = api("PUT", f"/zones/{zone_id}/rulesets/phases/http_ratelimit/entrypoint", {
-            "name": "Agent Core rate limits", "kind": "zone", "phase": "http_ratelimit",
-            "rules": rules}, apply=True)
+            "name": "Agent Core rate limits", "rules": rules}, apply=True)
         step("rate limit rules applied", res, True, f"http={st} rules={len(rules)}")
+
+        if not ok(res) and any(k in first_error(res) for k in
+                               ("maximum number of rules", "period", "entitled")):
+            merged_paths = sorted({p for r in RATE_RULES for p in r["path_prefixes"]})
+            per_minute = max(r["requests_per_period"] for r in RATE_RULES)
+            applied = False
+            # Zone plans differ: Free allows a single rule and only a 10s period, so keep the
+            # same requests-per-minute ceiling and walk the allowed periods.
+            for period in (60, 10):
+                count = max(1, round(per_minute * period / 60))
+                desc = (f"agent-core-edge-volumetric-backstop-{count}-per-{period}s-per-ip "
+                        f"(merged: zone plan allows 1 rule)")
+                if [r for r in current_rules if r.get("description") == desc]:
+                    step("merged rate limit rule already present", {"success": True}, True)
+                    applied = True
+                    break
+                st, res = api("PUT",
+                              f"/zones/{zone_id}/rulesets/phases/http_ratelimit/entrypoint",
+                              {"name": "Agent Core rate limits",
+                               "rules": current_rules + [rule_body(desc, merged_paths, period,
+                                                                   count, period)]}, apply=True)
+                step(f"rate limit rule applied (single merged rule {count}/{period}s per colo+IP)",
+                     res, True, f"http={st}")
+                if ok(res):
+                    applied = True
+                    print("        note: this zone plan caps http_ratelimit at 1 rule, so one "
+                          "ceiling covers both the machine API and the control surface; "
+                          "Cloudflare Access still gates the control surface and the app-level "
+                          "per-project limiter (100/min) governs the API.")
+                    break
+            if not applied:
+                print("        rate limiting NOT applied at the edge — the app-level "
+                      "per-project limiter is still active (see errors above)")
+
+    st, res = api("GET", f"/zones/{zone_id}/rulesets/phases/http_ratelimit/entrypoint", apply=True)
+    if ok(res):
+        active = (res.get("result") or {}).get("rules") or []
+        print("current http_ratelimit rules:")
+        for r in active:
+            rl = r.get("ratelimit") or {}
+            print(f"  - {r.get('description')} | enabled={r.get('enabled')} | "
+                  f"{rl.get('requests_per_period')}/{rl.get('period')}s "
+                  f"per {rl.get('characteristics')} | action={r.get('action')}")
 
     print("\nnext: apply the Tunnel ingress entry on the host (sudo ops/cloudflare-ingress-sudo.sh)")
 

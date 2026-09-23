@@ -1,7 +1,8 @@
 # Production Activation Report — Agent Core
 
-Status: **PARTIAL — runtime active on the target VPS; the Cloudflare edge layer is still BLOCKED on an
-operator-supplied credential, and the live-Jev adapter fix is verified but not yet promoted to production.**
+Status: **PARTIAL — runtime active on the target VPS and the Cloudflare edge layer is live
+(routing, Access, rate limiting verified from outside). Still open: the machine-identity end-to-end
+call through the edge (one token permission away) and promotion of the verified live-Jev adapter fix.**
 
 Nothing here is claimed as a production gate pass unless the evidence is stated. Items marked BLOCKED
 were not attempted past their gate.
@@ -150,37 +151,104 @@ tokens rotated** (`ops/rotate-project-tokens.py`, new fingerprints `79fe05b1`, `
 Prevention encoded in the tooling: `ops/qa-live.py` now passes the environment to child processes as a
 Python dict (never `source`), and all secret-handling scripts print only lengths/fingerprints.
 
-## 7. Cloudflare layer — BLOCKED
+## 7. Cloudflare layer — ACTIVE (routing, Access, rate limiting verified from outside)
 
-No Cloudflare credential exists in the execution environment: `~/.cloudflared/cert.pem` is absent and
-`cloudflared tunnel list` fails with "Cannot determine default origin certificate path". The operator
-chose to create an API token.
+### 7.1 Finding: the tunnel is REMOTE-managed, not file-managed
 
-Prepared and rehearsed:
-
-- `ops/cloudflare-ingress-sudo.sh` — adds `agent.raemanagemju.net → http://127.0.0.1:8787` to
-  `/etc/cloudflared/config.yml` (backup, insert before the catch-all, `ingress validate`, resolve every
-  existing hostname, restart, rollback on failure). **Rehearsed against a copy of the live config:
-  validate `OK`; rule #7 matched for `agent.raemanagemju.net`; `webhook`, `ssh`, `handbook`, `litellm`,
-  `raemanagemju.net` all still resolve to their original services; live cloudflared left untouched.**
-- `ops/cloudflare-edge.py --plan|--apply` — token verify, zone/account discovery, CNAME
-  `agent → 98cc1f81-c265-4c44-a61d-5271a2cad897.cfargotunnel.com` (proxied), Access apps for
-  `/control` + `/v1/control-metrics` (email allow + explicit deny), Access app for `/v1/*`
-  (service-token only), and zone rate-limit rules (600 req/min per IP on the machine API, 120 req/min on
-  the control surface — deliberately generous so development stays usable; the app's own per-project
-  limiter remains the primary control).
-
-Required token permissions (Cloudflare dashboard → My Profile → API Tokens), zone `raemanagemju.net`:
+`cloudflared` runs as `cloudflared --no-autoupdate tunnel --config /etc/cloudflared/config.yml run`,
+but the tunnel also has a **remote configuration** in the Cloudflare dashboard, and the remote one
+wins. Evidence (connector journal, 2026-09-23):
 
 ```text
-Zone    -> DNS                    -> Edit
-Zone    -> Zone                   -> Read
-Zone    -> WAF                    -> Edit     (rate limiting rules)
-Account -> Access: Apps and Policies -> Edit
-Account -> Account Settings       -> Read     (optional, auto-discovers the account id)
+INF Updated to new configuration config="{\"ingress\":[
+      {\"hostname\":\"hermes.raemanagemju.net\", \"service\":\"http://10.1.245.190:8642\"},
+      {\"hostname\":\"handbook.raemanagemju.net\", \"service\":\"http://127.0.0.1:8097\"},
+      {\"service\":\"http://127.0.0.1:80\"}], ...}" version=5
 ```
 
-Place the token at `~/.config/agent-core/cloudflare.token` (mode 600) or export `CF_API_TOKEN`.
+Consequences (pre-existing, not caused by this work):
+
+- Everything the local file lists beyond `handbook.raemanagemju.net` is **not in effect**:
+  `webhook.raemanagemju.net → 8644`, `ssh.raemanagemju.net → 22`, `litellm.raemanagemju.net → 4002`
+  and the `raemanagemju.net` path rules all fall through to the catch-all (`127.0.0.1:80`).
+- Verified by sending those Host headers straight to Apache: every one answers `200` with the
+  "VPS Projects & Services" page; `litellm.raemanagemju.net` answers `502` (Apache proxying to a
+  dead backend); `webhook.raemanagemju.net` answers the Apache page, not the Hermes webhook.
+- Landmine to record: if the remote configuration is ever removed, routing reverts to the local file
+  and **`hermes.raemanagemju.net` (→ 10.1.245.190:8642) disappears**, because it exists only remotely.
+- `ops/cloudflare-ingress-sudo.sh` (the local-file edit) therefore had no routing effect. It is kept
+  because it backs up/validates the file and documents the intent, but routing must be changed in the
+  dashboard or via `ops/cloudflare-tunnel-remote.py` (needs Account → Cloudflare Tunnel → Edit).
+
+### 7.2 What was created (all writes confirmed by read-back)
+
+| Object | State |
+|---|---|
+| DNS | `agent.raemanagemju.net` CNAME → `98cc1f81-c265-4c44-a61d-5271a2cad897.cfargotunnel.com`, proxied |
+| Tunnel route | public hostname `agent.raemanagemju.net` → `http://127.0.0.1:8787` added by the operator in the dashboard (remote config v6) |
+| Access app | `Agent Core — Human Control Center` — `agent.raemanagemju.net/control`, session 8h, policies `prinya-only=allow`, `deny-everyone-else=deny` |
+| Access app | `Agent Core — Control Metrics` — `/v1/control-metrics`, session 8h, same two policies |
+| Access app | `Agent Core — Health Probe` — `/v1/health`, policy `public-health-bypass=bypass` |
+| Access app | `Agent Core — Machine API` — `/v1/*`, session 24h, policy `service-tokens-only=non_identity` |
+| Rate limiting | 1 zone rule `agent-core-edge-volumetric-backstop-100-per-10s-per-ip`, characteristics `cf.colo.id + ip.src`, action `block`, mitigation 10s |
+
+Plan-limit facts discovered while applying (each was hit and handled by the tooling):
+
+- Free plan allows **one** rule in the `http_ratelimit` phase → the two intended ceilings had to be
+  merged into one volumetric backstop.
+- Free plan allows **only `period: 10`** and a matching **`mitigation_timeout: 10`** → the rule is
+  expressed as 100 requests / 10 s per colo+IP (≈600/min), not 600/60 s.
+- Zone-level rules additionally require the `cf.colo.id` characteristic.
+
+### 7.3 Public QA through the edge (from outside the host)
+
+```text
+GET  /v1/health            -> 200 {"status":"ok","service":"agent-core","auth_required":true,
+                                   "provider_configured":true,"jev_model":"~typesafe/jev-latest"}
+GET  /control              -> 302  (Cloudflare Access redirect — not publicly accessible)
+GET  /v1/control-metrics   -> 302  (Cloudflare Access redirect)
+POST /v1/decision (no service token) -> 403 (denied at the edge)
+burst 150 requests to /v1/decision   -> 139x403 (Access) + 11x429 (rate limit) => edge limit fires
+```
+
+`handbook.raemanagemju.net` still answers `200` after the change, so the pre-existing production
+hostname was not disturbed.
+
+### 7.4 Not yet verified (one credential away)
+
+The machine-identity end-to-end path (service token → Agent Core → Jev) is **not** verified yet:
+creating an Access service token needs the permission **Account → Access: Service Tokens → Edit**,
+which the current token lacks (`POST /accounts/.../access/service_tokens` → `403 auth.forbidden`
+while `GET` on the same endpoint returns 200). Once that permission is added, `ops/qa-public.py`
+runs the full chain and deletes the temporary token afterwards.
+
+### 7.5 Bot protection note
+
+The bypassed `/v1/health` path is subject to Cloudflare's bot protection: the Python HTTP client got
+`403 error code: 1010` ("banned based on browser signature") while `curl` and browsers pass, so the
+public QA harness drives `curl` instead. Machine clients (Node/Python) using this hostname may need
+either a WAF skip rule for the zone's bot checks, or health monitoring moved behind Access with a
+service token. `/v1/*` and `/control` are unaffected because Access answers those first.
+
+
+
+### 7.6 Tooling added for this layer
+
+- `ops/store-cloudflare-token.sh` — prompt-based token entry (never echoes the value, mode 600).
+- `ops/cloudflare-edge.py --plan|--verify|--apply` — token verify, zone/account resolution, DNS
+  route, the four Access apps and their policies, and the zone rate-limit rule. Idempotent; every
+  write is followed by a read-back.
+- `ops/cloudflare-tunnel-remote.py --plan|--apply|--verify` — reads the remote tunnel configuration,
+  backs it up to `~/backups/`, inserts the `agent` hostname before the catch-all and writes it back.
+  Needs an additional permission (see below); the dashboard route works without it.
+- `ops/cloudflare-ingress-sudo.sh` — local-file ingress edit, kept for the record (no routing effect
+  while the tunnel stays remote-managed). Rehearsed: `validate OK`, all existing hostnames unchanged.
+- `ops/qa-public.py` — the public QA harness (curl-driven, creates and deletes its own temporary
+  service token).
+
+Token permissions in use (`agent-core-edge`): `Zone→DNS→Edit`, `Zone→Zone→Read`, `Zone→WAF→Edit`,
+`Account→Access: Apps and Policies→Edit`. Add `Account→Access: Service Tokens→Edit` for §7.4, and
+`Account→Cloudflare Tunnel→Edit` if the remote configuration is to be managed from here.
 
 A second connector on the same tunnel ID with a divergent ingress list must NOT be started:
 Cloudflare load-balances across connectors, which would break the existing hostnames.
@@ -189,10 +257,11 @@ Cloudflare load-balances across connectors, which would break the existing hostn
 
 | # | Item | Blocker |
 |---|---|---|
-| B1 | Cloudflare Tunnel ingress, DNS, Access, WAF for `agent.raemanagemju.net` | API token not yet provided (section 7). Ingress step also needs one `sudo` run (`ops/cloudflare-ingress-sudo.sh`). |
-| B2 | Promote the live-Jev fix to production | Needs PR #5 approval + merge (then one release-pointer change / restart) |
-| B3 | Root-owned layout migration | Optional; operator will run `sudo bash ops/migrate-to-system-layout.sh` when convenient |
-| B4 | Public-hostname QA + 52Clips pilot connectivity | Depends on B1 |
+| B1 | ~~Cloudflare Tunnel ingress, DNS, Access, WAF~~ | **RESOLVED** — see §7 (routing + Access + rate limiting verified from outside) |
+| B2 | Machine-identity end-to-end QA through the edge (service token → Agent Core → Jev) | Token needs `Account → Access: Service Tokens → Edit`; then `ops/qa-public.py` completes it |
+| B3 | Promote the live-Jev fix to production | Needs PR #5 approval + merge (then one release-pointer change / restart) |
+| B4 | Root-owned layout migration | Optional; operator will run `sudo bash ops/migrate-to-system-layout.sh` when convenient |
+| B5 | 52Clips pilot connectivity | Needs B2 first (the pilot must present a Cloudflare service token + its project token) |
 
 ## 9. Rollback
 
@@ -206,12 +275,19 @@ ln -sfn releases/<previous-release-id> ~/agent-core/current && systemctl --user 
 systemctl --user disable --now agent-core.service && rm -rf ~/agent-core ~/.config/agent-core
 ```
 
-Cloudflare (after the ingress entry is added):
+Cloudflare edge (in dependency order):
 
 ```bash
-sudo cp -a /etc/cloudflared/config.yml.bak.agent-core-<timestamp> /etc/cloudflared/config.yml
-sudo systemctl restart cloudflared
+# 1) remove the public hostname in the dashboard (Zero Trust > Networks > Tunnels > Public Hostnames)
+# 2) delete the DNS record + Access apps + the rate-limit rule via the API:
+python3 ~/agent-workspace/agent-core/ops/cloudflare-edge.py --verify   # list what exists first
+# 3) if the tunnel config was changed by ops/cloudflare-tunnel-remote.py, restore the backup:
+#    ~/backups/tunnel-remote-config-<timestamp>.json  (PUT it back, or re-enter it in the dashboard)
+# 4) delete the API token in the Cloudflare dashboard when it is no longer needed
 ```
+
+Origin-side rollback of a promoted release is a single symlink change (§9 above); the Cloudflare
+layer is additive and its removal leaves the loopback-only runtime intact.
 
 After the root-owned migration, rollback to the user-space runtime:
 

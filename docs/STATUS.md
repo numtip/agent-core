@@ -34,8 +34,11 @@ See [PRODUCTION_ACTIVATION_REPORT.md](PRODUCTION_ACTIVATION_REPORT.md) for full 
 | Local production QA (`ops/qa-local.py`) | PASS — 20/20 (health, 401, 403 scope/project, fallback, 503, 429, audit, control surface) |
 | Project identities (5) | PROVISIONED host-side, secrets never in Git |
 | OpenRouter/Jev live decisions | VERIFIED ON FIX BRANCH — live `choice`/`noul`/`score` PASS against `~typesafe/jev-latest` (PR #5, awaiting merge); production `9d2e9a9` still degrades live `choice` to the safe fallback because the response parser expected the wrong shape |
-| Cloudflare Tunnel / DNS / Access / WAF | BLOCKED — no Cloudflare credential available to the execution environment; API token required (see report §7) |
-| 52Clips pilot connectivity | BLOCKED — depends on the public hostname |
+| Cloudflare Tunnel / DNS / Access / WAF | **LIVE** — public hostname `agent.raemanagemju.net` routed (remote-managed tunnel), 4 Access apps, 1 zone rate-limit rule; verified from outside: health 200, `/control` 302, unauthenticated machine call 403, burst → 429. Machine-identity E2E pending one token permission. |
+| 52Clips pilot connectivity | BLOCKED — depends on the machine-identity E2E (service token) |
+
+Runtime note: the tunnel on this host is **remote-managed** — `/etc/cloudflared/config.yml` is used
+for credentials only, and the dashboard's public-hostname list decides routing (see report §7.1).
 
 Runtime method currently deviates from `deploy/README.md` (user-space instead of
 `/opt/agent-core` + `/etc/agent-core`) because `sudo` on this host requires an interactive

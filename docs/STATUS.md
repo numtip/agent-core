@@ -22,3 +22,21 @@ Production activation is intentionally **not claimed** until both are available 
 - authorized Cloudflare account/Tunnel configuration
 
 No repository code or CI result can substitute for that live infrastructure verification.
+
+## VPS activation progress — 2026-09-23
+
+See [PRODUCTION_ACTIVATION_REPORT.md](PRODUCTION_ACTIVATION_REPORT.md) for full evidence.
+
+| Layer | State |
+|---|---|
+| Code gates on `main` @ `9d2e9a9` (install, audit, 20 tests, build) | PASS |
+| Runtime on VPS `ubantu24` (10.1.254.237) | ACTIVE — systemd user unit `agent-core.service`, `127.0.0.1:8787` only |
+| Local production QA (`ops/qa-local.py`) | PASS — 20/20 (health, 401, 403 scope/project, fallback, 503, 429, audit, control surface) |
+| Project identities (5) | PROVISIONED host-side, secrets never in Git |
+| OpenRouter/Jev live decisions | BLOCKED — provider key not injected; fallback path verified instead |
+| Cloudflare Tunnel / DNS / Access / WAF | BLOCKED — no Cloudflare credential available to the execution environment |
+| 52Clips pilot connectivity | BLOCKED — depends on the public hostname |
+
+Runtime method currently deviates from `deploy/README.md` (user-space instead of
+`/opt/agent-core` + `/etc/agent-core`) because `sudo` on this host requires an interactive
+password. Migration is a documented follow-up step, not a completed one.

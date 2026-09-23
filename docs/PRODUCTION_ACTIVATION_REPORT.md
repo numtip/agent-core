@@ -1,64 +1,50 @@
 # Production Activation Report — Agent Core
 
-Status: **PARTIAL — local runtime active on the target VPS; Cloudflare edge layer and live OpenRouter/Jev QA are BLOCKED on credentials that only the operator can supply.**
+Status: **PARTIAL — runtime active on the target VPS; the Cloudflare edge layer is still BLOCKED on an
+operator-supplied credential, and the live-Jev adapter fix is verified but not yet promoted to production.**
 
-Nothing in this report is claimed as production-complete. Every item marked PASS was observed
-with the command/evidence noted. Items marked BLOCKED were not attempted past their gate.
+Nothing here is claimed as a production gate pass unless the evidence is stated. Items marked BLOCKED
+were not attempted past their gate.
 
 ## 1. Deployment facts
 
 | Item | Value |
 |---|---|
-| Deployment date | 2026-09-23 (Asia/Bangkok) |
+| Report date | 2026-09-23 (Asia/Bangkok) |
 | VPS hostname | `ubantu24` (10.1.254.237) |
 | Repository | `numtip/agent-core` (private) |
-| Deployed commit | `9d2e9a91811b4bf87870190221211f47a4a441fa` (`feat: complete Agent Core phases 2-8 platform`) |
-| Branch | `main` |
-| Runtime method | Node 22.22.2 (`~/.nvm/versions/node/v22.22.2/bin/node`) + systemd **user** unit (see deviation note) |
-| Service | `agent-core.service` (`systemctl --user`), enabled, `active (running)` |
-| Bind address | `127.0.0.1:8787` (loopback only) |
+| Deployed commit (production runtime) | `9d2e9a91811b4bf87870190221211f47a4a441fa` (`main`) |
+| Runtime method | Node 22.22.2 + systemd **user** unit (`agent-core.service`), enabled, `Linger=yes` |
+| Bind address | `127.0.0.1:8787` (loopback only, verified with `ss -lntp`) |
+| Release layout | `/home/prinyaroot/agent-core/releases/9d2e9a9` + `current` symlink |
+| Runtime env | `/home/prinyaroot/.config/agent-core/agent-core.env` (mode 600, owner-only) |
 | Audit log | `/home/prinyaroot/agent-core/logs/audit.jsonl` |
-| Runtime config | `/home/prinyaroot/.config/agent-core/agent-core.env` (mode `600`, owner-only) |
+| Node runtime | `/home/prinyaroot/.nvm/versions/node/v22.22.2/bin/node` |
 
-### Deviation from the target layout (requires operator action)
+### Layout deviation (operator decision: keep user-space for now)
 
-The runbook asks for `/opt/agent-core/releases/<release-id>` + `/etc/agent-core/agent-core.env`
-(root `agentcore` account, mode 640). That layout requires `sudo`, and on this host `sudo`
-requires an interactive password (`sudo -n true` → "a password is required"), which the
-automation environment does not have. A **user-space deployment** was performed instead so that
-the platform is live and verifiable without elevating privileges:
+`deploy/README.md` specifies `/opt/agent-core` + `/etc/agent-core/agent-core.env` (root `agentcore`,
+mode 640) and a system unit. That requires `sudo`, which needs an interactive password on this host and is
+therefore unavailable to the automation environment. The operator chose to keep the user-space runtime and
+to run the root-owned migration himself. A rehearsed migration script is provided:
+`ops/migrate-to-system-layout.sh` (creates `agentcore`, `/opt/agent-core`, `/etc/agent-core` 640,
+`/var/log/agent-core`, `/var/lib/agent-core`, installs a Node 22 runtime at `/usr/local/agent-core-node`
+so the system `nodejs 20.20.2` package is left untouched, and stops the user unit to free the port).
 
-```text
-/home/prinyaroot/agent-core/
-├── releases/9d2e9a9/          # production dependencies + built dist
-└── current -> releases/9d2e9a9
-/home/prinyaroot/.config/systemd/user/agent-core.service
-/home/prinyaroot/.config/agent-core/agent-core.env   (mode 600)
-```
-
-This is functionally equivalent for the HTTP contract, and fully reversible, but it means:
-- the service runs as `prinyaroot`, not a dedicated `agentcore` account;
-- `NoNewPrivileges`/`PrivateTmp` are set, but `ProtectSystem=strict` + `ProtectHome` from the
-  template cannot be used (the runtime lives under `$HOME`);
-- the audit log is under `$HOME`, not `/var/log/agent-core`.
-
-Migrating to the root-owned layout is a single follow-up step once operator approval is
-available (`sudo` password or a pre-created `/opt/agent-core` + `/etc/agent-core` with the
-`agentcore` user).
-
-## 2. Build and test gates (pre-promotion, main @ 9d2e9a9)
+## 2. Code gates on `main` @ `9d2e9a9`
 
 | Gate | Result | Evidence |
 |---|---|---|
-| `npm install` | PASS | 105 packages, no errors |
+| `npm install` | PASS | 105 packages |
 | `npm audit --omit=dev --audit-level=high` | PASS | `found 0 vulnerabilities` |
-| `npm test` | PASS | `Test Files 5 passed (5)`, `Tests 20 passed (20)` |
+| `npm test` | PASS | 5 files, 20 tests passed |
 | `npm run build` | PASS | `tsc -p tsconfig.json`, exit 0 |
+
+After the live-response fix (section 5): `npm test` → 5 files, **24 tests passed**, build clean.
 
 ## 3. Project identities
 
-Five independent project identities were generated on the VPS and stored **only** in the
-protected runtime env file (never in Git, never in logs, never printed):
+Five identities generated on the VPS, stored only in the mode-600 env file, never in Git or logs:
 
 | Project | Scopes |
 |---|---|
@@ -68,101 +54,183 @@ protected runtime env file (never in Git, never in logs, never printed):
 | `goffice2026` | decision, route, qa, context, metrics |
 | `dbplant` | decision, context (read-only default retained) |
 
-Token format: 32 random bytes (64 hex chars) per project, generated with a CSPRNG.
+Tokens: 32 random bytes (64 hex) each, CSPRNG-generated (`ops/rotate-project-tokens.py`).
 
-## 4. Local QA results — 20/20 PASS
+## 4. Local production QA — PASS
 
-Harness: `ops/qa-local.py` (reads secrets from the protected env file; prints no secret values).
+Harness: `ops/qa-local.py` (reads secrets from the protected env file; prints none).
 
-```text
-[PASS] health 200                    {"status":"ok","service":"agent-core","version":"0.2.0","auth_required":true,"provider_configured":false,"jev_model":"~typesafe/jev-latest"}
-[PASS] bound to 127.0.0.1:8787 only  LISTEN 127.0.0.1:8787 (no 0.0.0.0:8787 listener)
-[PASS] unauthenticated protected request -> 401
-[PASS] invalid token -> 401
-[PASS] cross-project body/header mismatch -> 403 PROJECT_MISMATCH
-[PASS] wrong scope (dbplant -> /v1/qa) -> 403 FORBIDDEN scope=qa
-[PASS] provider unavailable + fallback_result -> 200 fallback=true result=HUMAN_REVIEW reason=PROVIDER_UNAVAILABLE
-[PASS] provider unavailable + no fallback -> 503 DECISION_UNAVAILABLE
-[PASS] /v1/context with context scope -> 200
-[PASS] /v1/projects with metrics scope -> 200
-[PASS] /v1/projects without metrics scope -> 403
-[PASS] rate limit -> 429 RATE_LIMITED after 100 requests / 60s window   (105 requests issued)
-[PASS] audit log present and populated with decision events
-[PASS] audit event has required fields (project, route, decision_type, result, confidence, latency_ms, fallback, provider_request_id, timestamp)
-[PASS] audit contains no project tokens
-[PASS] audit contains no OpenRouter key
-[PASS] audit contains no Authorization header
-[PASS] /control serves dashboard at origin
-[PASS] /v1/control-metrics reachable at origin
-[PASS] service active (systemd user unit)
+- Without a provider key: **20/20 PASS** — including the two provider-unavailable branches
+  (`fallback_result` → 200 FALLBACK/`PROVIDER_UNAVAILABLE`; absent → 503 `DECISION_UNAVAILABLE`).
+- After the key was injected and tokens rotated: **19/19 PASS** (the two keyless branches are skipped by
+  design once a key exists, so a live outage test does not disturb production).
+
+Covered: health 200 · loopback-only bind · unauthenticated 401 · invalid token 401 ·
+cross-project mismatch 403 `PROJECT_MISMATCH` · wrong scope 403 `FORBIDDEN` · context 200 ·
+projects+metrics 200 / without scope 403 · 429 `RATE_LIMITED` past 100 req/60s · audit fields complete ·
+audit contains no project tokens / OpenRouter key / Authorization header · `/control` and
+`/v1/control-metrics` reachable at origin (edge gating pending).
+
+## 5. Live OpenRouter/Jev QA — one real incompatibility found
+
+Provider: `https://openrouter.ai/api/alpha/decisions`, resolved model `typesafe/jev-1.13-20260917`,
+`provider: TypeSafe`. Warm latency **0.39–0.80 s** per call (no cold-start penalty observed; ~$0.000012–0.000015 per call).
+
+Live response contract, captured 2026-09-23:
+
+```json
+choice -> {"type":"choice","choice":"GENERATE_SUBTITLE",
+           "probabilities":{"GENERATE_SUBTITLE":0.98,"READY_FOR_QA":0,"HUMAN_REVIEW":0.02},
+           "confidence":0.97}
+noul   -> {"type":"noul","noul":0.07}
+score  -> {"type":"score","score":0.35,"legend":{"0":"not started","1":"partial","2":"fully ready"},
+           "probabilities":{"0":0.76,"1":0.13,"2":0.11},"confidence":0.48}
 ```
 
-### Origin exposure
+Through Agent Core on the deployed commit `9d2e9a9`:
 
-Port 8787 listens on `127.0.0.1` only, so it is not reachable from the LAN or the Internet.
-No firewall changes were made (SSH connectivity untouched); `ufw` is active and enabled on the
-host. Cloudflare edge protection (Access/WAF) is still pending and is therefore **not** yet
-part of the security posture.
+```text
+choice HTTP 200 0.63s -> result=HUMAN_REVIEW confidence=0 reason=PROVIDER_UNAVAILABLE fallback=true
+noul   HTTP 200 0.40s -> result=false confidence=0.98 disposition=EXECUTE
+score  HTTP 200 0.40s -> result="1.02" confidence=1 disposition=EXECUTE
+```
 
-### Control Center caveat
+Two defects in `src/providers/jev.ts` (both silent-failure or over-confidence risks):
 
-`/control` and `/v1/control-metrics` are intentionally unauthenticated **at the origin** by
-design (the code comment states the edge must gate them). Until Cloudflare Access exists, these
-routes must stay loopback-only. Do not add a public Tunnel hostname before Access policy is in
-place.
+1. **choice was incompatible** — `parseChoice` expected `answers.decision.choice` to be a
+   `{label: probability}` object; the live API returns a **string label** plus separate `probabilities`
+   and `confidence`. Every live choice question therefore threw, and (with `fallback_result` present)
+   degraded to `PROVIDER_UNAVAILABLE`/`HUMAN_REVIEW`. With no `fallback_result` it would have returned 503.
+2. **score reported fabricated certainty** — `parseScore` returned the raw normalized `score` (e.g. `"1.02"`)
+   and defaulted `confidence` to `1` when the response carried `probability` instead of `confidence`.
+   The live API does supply `confidence` (0.48 in the probe), and the meaningful result is the top
+   level label, not the normalized number.
 
-## 5. Blocked items (operator input required)
+### Fix (branch `fix/jev-live-response-schema`, PR #5 — awaiting approval)
+
+- `parseChoice` accepts the live string shape (confidence from `confidence`, else `probabilities[label]`)
+  and keeps the legacy object form.
+- `parseScore` maps the top-probability index to the level label (from `legend`, falling back to the
+  request's `levels`) and uses the provider's real `confidence`.
+- A score answer with no calibrated confidence now **throws** instead of returning an invented `1.0`
+  (previously promoted to `EXECUTE`).
+- Tests added for all three shapes plus the no-confidence guard: **24/24 pass**.
+
+### Live verification of the fix (staging instance on 127.0.0.1:8788, production untouched)
+
+```text
+choice HTTP 200 0.50s -> result=GENERATE_SUBTITLE confidence=0.97 disposition=EXECUTE fallback=false
+noul   HTTP 200 0.39s -> result=false             confidence=0.98 disposition=EXECUTE
+score  HTTP 200 0.44s -> result=partial           confidence=0.97 disposition=EXECUTE
+```
+
+Production still runs `9d2e9a9`, so the gate "live Jev choice PASS" is **verified on the fix branch, not on
+the promoted production build**. Promotion is one release pointer change once PR #5 is approved.
+
+### Provider failure classification (distinguished, not lumped together)
+
+| Class | Evidence |
+|---|---|
+| Reachability / success | HTTP 200, `id` present (`gen-dec-…`), schema as above |
+| Authentication failure | invalid key → **HTTP 401 `{"error":{"message":"User not found."}}`** |
+| Network failure | unreachable URL → transport error (`URLError: Connection refused`), no HTTP status |
+| Timeout | `OPENROUTER_TIMEOUT_MS=1` → safe fallback (`PROVIDER_UNAVAILABLE`, 200 FALLBACK) or 503 without `fallback_result` |
+| Schema error | defect 1 above — a parse failure surfaces as `PROVIDER_UNAVAILABLE`, which hides the root cause; the fix removes it for the live shapes |
+
+## 6. Security incident during activation (self-inflicted, remediated)
+
+While starting a temporary staging instance, the runtime env file was sourced through a **shell**, which
+stripped the quotes inside the `AGENT_CORE_PROJECT_KEYS` JSON and made the process print the full
+`{project: token}` map into a `/tmp` log — and that log excerpt reached the chat transcript.
+
+Remediation performed immediately: temp files deleted (`/tmp/agent-core-staging.*`), **all five project
+tokens rotated** (`ops/rotate-project-tokens.py`, new fingerprints `79fe05b1`, `2c257010`, `81548372`,
+`dfeb25df`, `dde0680c`), service restarted, local QA re-run to prove the rotation. The leaked values are dead.
+
+Prevention encoded in the tooling: `ops/qa-live.py` now passes the environment to child processes as a
+Python dict (never `source`), and all secret-handling scripts print only lengths/fingerprints.
+
+## 7. Cloudflare layer — BLOCKED
+
+No Cloudflare credential exists in the execution environment: `~/.cloudflared/cert.pem` is absent and
+`cloudflared tunnel list` fails with "Cannot determine default origin certificate path". The operator
+chose to create an API token.
+
+Prepared and rehearsed:
+
+- `ops/cloudflare-ingress-sudo.sh` — adds `agent.raemanagemju.net → http://127.0.0.1:8787` to
+  `/etc/cloudflared/config.yml` (backup, insert before the catch-all, `ingress validate`, resolve every
+  existing hostname, restart, rollback on failure). **Rehearsed against a copy of the live config:
+  validate `OK`; rule #7 matched for `agent.raemanagemju.net`; `webhook`, `ssh`, `handbook`, `litellm`,
+  `raemanagemju.net` all still resolve to their original services; live cloudflared left untouched.**
+- `ops/cloudflare-edge.py --plan|--apply` — token verify, zone/account discovery, CNAME
+  `agent → 98cc1f81-c265-4c44-a61d-5271a2cad897.cfargotunnel.com` (proxied), Access apps for
+  `/control` + `/v1/control-metrics` (email allow + explicit deny), Access app for `/v1/*`
+  (service-token only), and zone rate-limit rules (600 req/min per IP on the machine API, 120 req/min on
+  the control surface — deliberately generous so development stays usable; the app's own per-project
+  limiter remains the primary control).
+
+Required token permissions (Cloudflare dashboard → My Profile → API Tokens), zone `raemanagemju.net`:
+
+```text
+Zone    -> DNS                    -> Edit
+Zone    -> Zone                   -> Read
+Zone    -> WAF                    -> Edit     (rate limiting rules)
+Account -> Access: Apps and Policies -> Edit
+Account -> Account Settings       -> Read     (optional, auto-discovers the account id)
+```
+
+Place the token at `~/.config/agent-core/cloudflare.token` (mode 600) or export `CF_API_TOKEN`.
+
+A second connector on the same tunnel ID with a divergent ingress list must NOT be started:
+Cloudflare load-balances across connectors, which would break the existing hostnames.
+
+## 8. Blockers
 
 | # | Item | Blocker |
 |---|---|---|
-| B1 | Root-owned layout `/opt/agent-core` + `/etc/agent-core` + `agentcore` user + system-level unit | `sudo` requires an interactive password on this host |
-| B2 | Cloudflare Tunnel ingress `agent.<domain>` → `http://127.0.0.1:8787` | No Cloudflare credential on the host: `~/.cloudflared/cert.pem` absent, no API token found, `cloudflared tunnel list` → "Cannot determine default origin certificate path" |
-| B3 | Cloudflare DNS record for the chosen hostname | Same as B2 |
-| B4 | Cloudflare Access applications for `/control` + `/v1/control-metrics`, machine identities per project | Same as B2 |
-| B5 | Cloudflare WAF / rate-limit rules for `/v1/decision`, `/v1/route`, `/v1/qa`, `/v1/context`, `/v1/subagent`, `/v1/advanced-route` | Same as B2 |
-| B6 | Live OpenRouter/Jev smoke QA (`choice`, `noul`, provider-error classification) | `OPENROUTER_API_KEY` is not exported into the Agent Core runtime env. A key exists elsewhere on the host (`~/agent-workspace/tools/jev/.env`, `~/.hermes/.env`) but reusing it is a credential-handling decision that requires operator approval. Without it the platform correctly reports `provider_configured: false` and exercises the safe fallback path. |
-| B7 | Public hostname QA through Cloudflare (health, 401/403 through the edge, Control Center privacy) | Depends on B2–B5 |
-| B8 | 52Clips pilot connectivity using the public URL | Depends on B7 |
+| B1 | Cloudflare Tunnel ingress, DNS, Access, WAF for `agent.raemanagemju.net` | API token not yet provided (section 7). Ingress step also needs one `sudo` run (`ops/cloudflare-ingress-sudo.sh`). |
+| B2 | Promote the live-Jev fix to production | Needs PR #5 approval + merge (then one release-pointer change / restart) |
+| B3 | Root-owned layout migration | Optional; operator will run `sudo bash ops/migrate-to-system-layout.sh` when convenient |
+| B4 | Public-hostname QA + 52Clips pilot connectivity | Depends on B1 |
 
-The existing Cloudflare Tunnel on this host (`98cc1f81-c265-4c44-a61d-5271a2cad897`) already
-serves `webhook.raemanagemju.net`, `ssh.raemanagemju.net`, `handbook.raemanagemju.net`,
-`litellm.raemanagemju.net`, `/ai/*` and `/attendance-report/*` on `raemanagemju.net`. It is a
-single shared connector, so adding the Agent Core hostname means one ingress entry in
-`/etc/cloudflared/config.yml` (root-owned, needs sudo) **plus** a matching Cloudflare DNS route.
-A second cloudflared connector on the same tunnel ID must **not** be started with a divergent
-ingress list — Cloudflare load-balances across connectors on the same tunnel, which would
-silently break the existing hostnames.
+## 9. Rollback
 
-## 6. Rollback
-
-The previous state is preserved: this was a first deployment, so there is no earlier release to
-return to. Rollback of the user-space runtime:
+User-space runtime (current production):
 
 ```bash
-systemctl --user disable --now agent-core.service
-rm -f ~/.config/systemd/user/agent-core.service ~/agent-core/current
-systemctl --user daemon-reload
-# optional full removal
-rm -rf ~/agent-core ~/.config/agent-core
+systemctl --user stop agent-core.service          # or: disable --now
+# to return to an earlier build:
+ln -sfn releases/<previous-release-id> ~/agent-core/current && systemctl --user restart agent-core.service
+# full removal:
+systemctl --user disable --now agent-core.service && rm -rf ~/agent-core ~/.config/agent-core
 ```
 
-If a release already exists and a new one has been promoted:
+Cloudflare (after the ingress entry is added):
 
 ```bash
-systemctl --user stop agent-core.service
-ln -sfn releases/<previous-release-id> ~/agent-core/current   # inside ~/agent-core
-systemctl --user start agent-core.service
+sudo cp -a /etc/cloudflared/config.yml.bak.agent-core-<timestamp> /etc/cloudflared/config.yml
+sudo systemctl restart cloudflared
 ```
 
-Rollback of a future Cloudflare change: remove the `agent.<domain>` ingress entry from
-`/etc/cloudflared/config.yml`, restart `cloudflared`, and delete the DNS record. Backup the
-config before editing (`cp /etc/cloudflared/config.yml /etc/cloudflared/config.yml.bak.<ts>`).
+After the root-owned migration, rollback to the user-space runtime:
 
-## 7. Remaining risks
+```bash
+sudo systemctl disable --now agent-core.service
+sudo rm -f /etc/systemd/system/agent-core.service && sudo systemctl daemon-reload
+runuser -u prinyaroot -- env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user enable --now agent-core.service
+```
 
-1. Origin Control Center routes are unauthenticated until Cloudflare Access exists — keep 8787 loopback-only and do not create the public hostname before the Access policy.
-2. The runtime currently lacks an OpenRouter provider key, so every decision request resolves through the fallback path. The fallback is proven safe; live Jev quality is unproven.
-3. User-space deployment is weaker isolation than the documented `agentcore` system account.
-4. Host disk is at 94% (5.2 GB free on `/`) — node_modules and future releases need headroom; old releases should be pruned.
-5. `AGENT_CORE_PROJECT_KEYS` lives in a 600 file owned by `prinyaroot`; if the service later moves to a dedicated account, re-issue and rotate tokens rather than copying them.
-6. Rate limiting is in-process (`RateLimiter` map), so it resets on restart and does not span processes — the Cloudflare layer (B5) is the compensating control.
+## 10. Remaining risks
+
+1. `/control` and `/v1/control-metrics` are unauthenticated **at the origin** by design; they must stay
+   loopback-only until Cloudflare Access exists. Do not publish the hostname before Access is attached.
+2. Production currently resolves every live `choice` question through the fallback path (section 5) —
+   safe, but not the intended behaviour. The fix is verified and awaiting promotion.
+3. In-process rate limiter only (per-project, resets on restart); Cloudflare limits are the compensating layer.
+4. User-space runtime gives weaker isolation than the documented `agentcore` account; `ProtectSystem=strict`
+   and `ProtectHome` from the template are not usable while the runtime lives under `$HOME`.
+5. Host disk at 94% (5.2 GB free). Old releases must be pruned; a second release plus `node_modules`
+   needs headroom before the migration step.
+6. Project tokens were rotated once during activation (section 6); any future client must read them from
+   the protected env file, never from logs or chat.

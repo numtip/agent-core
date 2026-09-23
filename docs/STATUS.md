@@ -33,8 +33,8 @@ See [PRODUCTION_ACTIVATION_REPORT.md](PRODUCTION_ACTIVATION_REPORT.md) for full 
 | Runtime on VPS `ubantu24` (10.1.254.237) | ACTIVE — systemd user unit `agent-core.service`, `127.0.0.1:8787` only |
 | Local production QA (`ops/qa-local.py`) | PASS — 20/20 (health, 401, 403 scope/project, fallback, 503, 429, audit, control surface) |
 | Project identities (5) | PROVISIONED host-side, secrets never in Git |
-| OpenRouter/Jev live decisions | BLOCKED — provider key not injected; fallback path verified instead |
-| Cloudflare Tunnel / DNS / Access / WAF | BLOCKED — no Cloudflare credential available to the execution environment |
+| OpenRouter/Jev live decisions | VERIFIED ON FIX BRANCH — live `choice`/`noul`/`score` PASS against `~typesafe/jev-latest` (PR #5, awaiting merge); production `9d2e9a9` still degrades live `choice` to the safe fallback because the response parser expected the wrong shape |
+| Cloudflare Tunnel / DNS / Access / WAF | BLOCKED — no Cloudflare credential available to the execution environment; API token required (see report §7) |
 | 52Clips pilot connectivity | BLOCKED — depends on the public hostname |
 
 Runtime method currently deviates from `deploy/README.md` (user-space instead of

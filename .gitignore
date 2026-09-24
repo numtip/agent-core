@@ -32,6 +32,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Playwright MCP runtime artefacts
+.playwright-mcp/
+
 # Local agent state
 .ai/state/
 .ai/decisions/

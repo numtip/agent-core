@@ -1,0 +1,109 @@
+{
+  "generated": "2026-09-25T02:04:31+0700",
+  "source_sha": "bf0803000ff7f2d3254cc8dbbf6ebc5aabd0980a",
+  "release": "/home/prinyaroot/agent-core/releases/bf08030-h1",
+  "runtime_version": "0.6.0",
+  "sample_count": 45,
+  "cases": 15,
+  "pass": 45,
+  "fail": 0,
+  "pass_rate": 1.0,
+  "routing_success_rate": 0.8667,
+  "fallback_rate": 0.0667,
+  "retry_rate": 0.0667,
+  "policy_block_count": 9,
+  "context_reduction_ratio": 0.5105,
+  "browser_success_rate": 1.0,
+  "task_completion_rate": 1.0,
+  "provider_failure_rate": 1.0,
+  "latency_ms": {
+    "p50": 2.8,
+    "p95": 353.3,
+    "min": 1.8,
+    "max": 368.6
+  },
+  "per_case": {
+    "BENCH-01": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 2.5
+    },
+    "BENCH-02": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 2.3
+    },
+    "BENCH-03": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 1.9
+    },
+    "BENCH-04": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 2.0
+    },
+    "BENCH-05": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 4.6
+    },
+    "BENCH-06": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 2.1
+    },
+    "BENCH-07": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 2.8
+    },
+    "BENCH-08": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 4.9
+    },
+    "BENCH-09": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 4.1
+    },
+    "BENCH-10": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 2.6
+    },
+    "BENCH-11": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 5.4
+    },
+    "BENCH-12": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 360.3
+    },
+    "BENCH-13": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 3.5
+    },
+    "BENCH-14": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 1.9
+    },
+    "BENCH-15": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 4.1
+    }
+  },
+  "cost_per_task": "NOT_AVAILABLE",
+  "limitations": [
+    "45 samples total across 15 cases; p95 is indicative only at this sample size",
+    "dbplant policy cases run on a short-lived isolated instance with a temporary route scope",
+    "provider fallback case uses a deliberately broken endpoint on an isolated instance",
+    "supervisor case runs at module level (no HTTP route in v0.6.0)"
+  ]
+}

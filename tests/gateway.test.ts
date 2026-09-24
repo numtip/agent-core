@@ -33,7 +33,7 @@ const config:RuntimeConfig={
   openRouterDecisionsUrl:"https://example.invalid",jevModel:"~typesafe/jev-latest",
   requestTimeoutMs:1000,confidenceExecute:0.85,confidenceReview:0.60,
   authRequired:true,projectKeys:{goffice2026:"secret"},projectScopes:{goffice2026:["route"]},
-  rateLimitMax:100,rateLimitWindowMs:60000,auditLogPath:null
+  rateLimitMax:100,rateLimitWindowMs:60000,auditLogPath: null,playwrightMcpExecutionEnabled:false,playwrightMcpEndpoint:"http://127.0.0.1:8791/mcp",playwrightMcpTimeoutMs:5000
 };
 const provider={decide:async()=>({result:"x",confidence:0.9,providerRequestId:"x"})} as unknown as JevProvider;
 

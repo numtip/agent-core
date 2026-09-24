@@ -1,7 +1,13 @@
-schema_version: 1
+schema_version: 2
 project:
   id: goffice2026
   type: web-application
+platform:
+  api: v2
+  capability_registry: true
+  gateway: true
+  context_governor: true
+  supervisor: true
 features:
   task_route: true
   tool_route: true
@@ -9,5 +15,14 @@ features:
   subagent_route: true
   qa_disposition: true
   context_route: true
+  unified_route: true
+  gateway_execute: true
+  context_govern: true
+  supervisor: true
+  browser: true
 policy:
   production_deploy: human_approval
+  browser_external_write: explicit_scope
+migration:
+  v1_compatible: true
+  preferred_api: v2

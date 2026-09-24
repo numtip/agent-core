@@ -1,11 +1,25 @@
-schema_version: 1
+schema_version: 2
 project:
   id: attendance-report-generator
   type: document-automation
+platform:
+  api: v2
+  capability_registry: true
+  gateway: true
+  context_governor: true
+  supervisor: true
 features:
   task_route: true
   qa_disposition: true
   context_route: true
+  unified_route: true
+  gateway_execute: true
+  context_govern: true
+  supervisor: true
+  browser: false
 policy:
   employee_match: deterministic_first
   destructive: ask
+migration:
+  v1_compatible: true
+  preferred_api: v2

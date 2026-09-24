@@ -1,107 +1,122 @@
 {
-  "generated": "2026-09-25T02:04:31+0700",
-  "source_sha": "bf0803000ff7f2d3254cc8dbbf6ebc5aabd0980a",
-  "release": "/home/prinyaroot/agent-core/releases/bf08030-h1",
+  "generated": "2026-09-25T02:26:16+0700",
+  "source_sha": "fca4f8f48660af9965c938cc3c0955cdf4d3aef7",
+  "release": "/home/prinyaroot/agent-core/releases/fca4f8f",
   "runtime_version": "0.6.0",
-  "sample_count": 45,
-  "cases": 15,
-  "pass": 45,
+  "sample_count": 54,
+  "cases": 18,
+  "pass": 54,
   "fail": 0,
   "pass_rate": 1.0,
-  "routing_success_rate": 0.8667,
-  "fallback_rate": 0.0667,
-  "retry_rate": 0.0667,
+  "routing_success_rate": 0.8333,
+  "fallback_rate": 0.0556,
+  "retry_rate": 0.0556,
   "policy_block_count": 9,
   "context_reduction_ratio": 0.5105,
   "browser_success_rate": 1.0,
   "task_completion_rate": 1.0,
   "provider_failure_rate": 1.0,
   "latency_ms": {
-    "p50": 2.8,
-    "p95": 353.3,
-    "min": 1.8,
-    "max": 368.6
+    "p50": 2.2,
+    "p95": 716.4,
+    "min": 1.6,
+    "max": 1057.2
   },
   "per_case": {
     "BENCH-01": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.5
+      "p50_ms": 2.7
     },
     "BENCH-02": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.3
+      "p50_ms": 1.7
     },
     "BENCH-03": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.9
+      "p50_ms": 1.8
     },
     "BENCH-04": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.0
+      "p50_ms": 2.2
     },
     "BENCH-05": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 4.6
+      "p50_ms": 4.3
     },
     "BENCH-06": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.1
+      "p50_ms": 1.8
     },
     "BENCH-07": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.8
+      "p50_ms": 1.6
     },
     "BENCH-08": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 4.9
+      "p50_ms": 1.7
     },
     "BENCH-09": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 4.1
+      "p50_ms": 1.7
     },
     "BENCH-10": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.6
+      "p50_ms": 1.8
     },
     "BENCH-11": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 5.4
+      "p50_ms": 5.0
     },
     "BENCH-12": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 360.3
+      "p50_ms": 324.0
     },
     "BENCH-13": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 3.5
+      "p50_ms": 3.4
     },
     "BENCH-14": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.9
+      "p50_ms": 2.0
     },
     "BENCH-15": {
       "runs": 3,
       "pass": 3,
       "p50_ms": 4.1
+    },
+    "BENCH-16": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 946.0
+    },
+    "BENCH-17": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 3.4
+    },
+    "BENCH-18": {
+      "runs": 3,
+      "pass": 3,
+      "p50_ms": 5.9
     }
   },
   "cost_per_task": "NOT_AVAILABLE",
   "limitations": [
-    "45 samples total across 15 cases; p95 is indicative only at this sample size",
+    "54 samples total across 18 cases; p95 is indicative only at this sample size",
     "dbplant policy cases run on a short-lived isolated instance with a temporary route scope",
     "provider fallback case uses a deliberately broken endpoint on an isolated instance",
     "supervisor case runs at module level (no HTTP route in v0.6.0)"

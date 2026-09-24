@@ -110,10 +110,16 @@ def main() -> int:
     procs: list[subprocess.Popen] = []
     procs.append(start_instance(8799, {"AGENT_CORE_PROJECT_SCOPES": json.dumps(scopes_dbplant, separators=(",", ":"))}, TMP / "bench-audit-8799.jsonl"))
     procs.append(start_instance(8800, {"OPENROUTER_DECISIONS_URL": "http://127.0.0.1:9/dead", "OPENROUTER_TIMEOUT_MS": "1200"}, TMP / "bench-audit-8800.jsonl"))
+    procs.append(start_instance(8801, {"PLAYWRIGHT_MCP_EXECUTION_ENABLED": "false"}, TMP / "bench-audit-8801.jsonl"))
+    procs.append(start_instance(8802, {"PLAYWRIGHT_MCP_EXECUTION_ENABLED": "true",
+                                       "PLAYWRIGHT_MCP_ENDPOINT": "http://127.0.0.1:9/dead-mcp",
+                                       "PLAYWRIGHT_MCP_TIMEOUT_MS": "3000"}, TMP / "bench-audit-8802.jsonl"))
 
     live = "http://127.0.0.1:8787"
     iso = "http://127.0.0.1:8799"
     broken = "http://127.0.0.1:8800"
+    flags_off = "http://127.0.0.1:8801"
+    mcp_down = "http://127.0.0.1:8802"
     ctx_items = [
         {"id": f"item-{i}",
          "text": ("deployment artifact and checksum detail for the release pipeline " * 55) if i % 4 == 0
@@ -210,6 +216,25 @@ def main() -> int:
                           "goffice2026", KEYS["goffice2026"], 30.0),
              lambda s, b: s == 200 and b.get("disposition") == "FALLBACK" and b.get("fallback") is True,
              "FALLBACK(fallback=true)")
+    add_case("BENCH-16", "live browser execution (READ via MCP)", "handbook", "READ",
+             lambda: call(live, "POST", "/v2/browser/execute",
+                          {"project": "handbook", "task_id": f"bench-brw-{uuid.uuid4().hex[:6]}",
+                           "url": "https://example.com/", "action": "BROWSER_READ"}, "handbook", KEYS["handbook"], 90.0),
+             lambda s, b: s == 200 and b.get("disposition") == "EXECUTED" and b.get("executed") is True
+                          and bool(((b.get("receipt") or {}).get("mcp") or {}).get("session_id")),
+             "EXECUTED executed=true with MCP session")
+    add_case("BENCH-17", "kill switch off (no live execution)", "handbook", "READ",
+             lambda: call(flags_off, "POST", "/v2/browser/execute",
+                          {"project": "handbook", "task_id": "bench-flag-off", "url": "https://example.com/",
+                           "action": "BROWSER_READ"}, "handbook", KEYS["handbook"]),
+             lambda s, b: s == 200 and b.get("executed") is False and b.get("reason") == "MCP_EXECUTION_DISABLED",
+             "READY executed=false / MCP_EXECUTION_DISABLED")
+    add_case("BENCH-18", "MCP runtime down (clean failure)", "handbook", "READ",
+             lambda: call(mcp_down, "POST", "/v2/browser/execute",
+                          {"project": "handbook", "task_id": "bench-mcp-down", "url": "https://example.com/",
+                           "action": "BROWSER_READ"}, "handbook", KEYS["handbook"], 30.0),
+             lambda s, b: s == 503 and b.get("error") == "MCP_UNAVAILABLE" and b.get("executed") is False,
+             "503 MCP_UNAVAILABLE executed=false")
 
     runs: list[dict] = []
     try:
@@ -311,6 +336,7 @@ def main() -> int:
         print(json.dumps({k: v for k, v in summary.items() if k != "per_case"}, indent=2))
         print(f"results_file={args.out}\nsummary_file={args.summary}")
     finally:
+        # bounded cleanup: TERM, wait, then KILL so no temporary instance can linger
         for proc in procs:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
@@ -320,7 +346,14 @@ def main() -> int:
             try:
                 proc.wait(timeout=10)
             except Exception:  # noqa: BLE001
-                pass
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:  # noqa: BLE001
+                    proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:  # noqa: BLE001
+                    pass
     return 0
 
 

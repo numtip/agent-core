@@ -256,7 +256,54 @@ def main() -> int:
                "PASS" if status == 200 and isinstance(body, dict) and body.get("disposition") == "UNAVAILABLE" else "FAIL",
                {"body": body}, project="goffice2026")
 
+        # ---------------- instance C: kill switch off ----------------
+        audit_c = TMP / "audit-8801.jsonl"
+        procs.append(start_instance(8801, {"PLAYWRIGHT_MCP_EXECUTION_ENABLED": "false"}, audit_c))
+        base_c = "http://127.0.0.1:8801"
+        status, body, latency = call(base_c, "POST", "/v2/browser/execute",
+                                     {"project": "handbook", "task_id": "flags-off", "url": "https://example.com/",
+                                      "action": "BROWSER_READ"}, project="handbook", token=KEYS["handbook"])
+        body = body if isinstance(body, dict) else {"raw": str(body)[:200]}
+        record("V5-flag-off-no-live-execution", "V", "policy still checked, nothing executed",
+               f"{status} disposition={body.get('disposition')} executed={body.get('executed')} reason={body.get('reason')}",
+               "PASS" if status == 200 and body.get("disposition") == "READY"
+                        and body.get("executed") is False and body.get("reason") == "MCP_EXECUTION_DISABLED" else "FAIL",
+               {"disposition": body.get("disposition"), "executed": body.get("executed"),
+                "reason": body.get("reason"), "execution": body.get("execution")}, project="handbook", latency_ms=latency)
+
+        # ---------------- instance D: MCP runtime unreachable ----------------
+        audit_d = TMP / "audit-8802.jsonl"
+        procs.append(start_instance(8802, {
+            "PLAYWRIGHT_MCP_EXECUTION_ENABLED": "true",
+            "PLAYWRIGHT_MCP_ENDPOINT": "http://127.0.0.1:9/dead-mcp",
+            "PLAYWRIGHT_MCP_TIMEOUT_MS": "3000",
+        }, audit_d))
+        base_d = "http://127.0.0.1:8802"
+        status, body, latency = call(base_d, "POST", "/v2/browser/execute",
+                                     {"project": "handbook", "task_id": "mcp-down", "url": "https://example.com/",
+                                      "action": "BROWSER_READ"}, project="handbook", token=KEYS["handbook"])
+        body = body if isinstance(body, dict) else {"raw": str(body)[:200]}
+        bounded = latency < 10000
+        record("V6-mcp-down-fails-clean", "V", "503 MCP_UNAVAILABLE, bounded latency, no hang",
+               f"{status} error={body.get('error')} executed={body.get('executed')} latency_ms={latency:.0f}",
+               "PASS" if status == 503 and body.get("error") == "MCP_UNAVAILABLE" and body.get("executed") is False and bounded else "FAIL",
+               {"status": status, "error": body.get("error"), "reason": body.get("reason"),
+                "executed": body.get("executed"), "latency_ms": round(latency, 1), "bounded_under_10s": bounded},
+               project="handbook", latency_ms=latency)
+
+        # dbplant invariant still holds after the browser execution work
+        status, body, _ = call(base, "POST", "/v2/execute",
+                               {"project": "dbplant", "task": "update production row", "operation": "WRITE"},
+                               project="dbplant", token=dbplant_token)
+        body = body if isinstance(body, dict) else {}
+        record("V7-dbplant-read-only-still-holds", "V", "APPROVAL_REQUIRED DBPLANT_READ_ONLY_DEFAULT",
+               f"{status} disposition={body.get('disposition')} reason={body.get('reason')}",
+               "PASS" if status == 200 and body.get("disposition") == "APPROVAL_REQUIRED" else "FAIL",
+               {"disposition": body.get("disposition"), "reason": body.get("reason"),
+                "executed": body.get("executed")}, project="dbplant")
+
     finally:
+        # bounded cleanup: TERM, wait, then KILL so no temporary instance can linger
         for proc in procs:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
@@ -266,7 +313,14 @@ def main() -> int:
             try:
                 proc.wait(timeout=10)
             except Exception:  # noqa: BLE001
-                pass
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:  # noqa: BLE001
+                    proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:  # noqa: BLE001
+                    pass
 
     out = Path(args.out)
     with out.open("a") as fh:

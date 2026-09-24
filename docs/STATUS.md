@@ -30,10 +30,20 @@
 | V2-2 Gateway / Interceptor | COMPLETE | progressive disclosure, search, execution contracts, `/v2/execute` |
 | V2-3 Context Governor | COMPLETE | KEEP/COMPRESS/DROP/PIN, protected context, context receipts and reduction metrics |
 | V2-4 Browser Control Plane | CODE COMPLETE | Playwright MCP policy-controlled handoff, browser scope, URL/domain checks, injection guard, action-risk and receipts |
-| V2-5 Supervisor | NOT STARTED | multi-agent/workflow coordination phase |
-| V2-6 Control Center v2 | NOT STARTED | v2 metrics/receipts/workflow visibility |
-| V2-7 Project migration | NOT STARTED | migrate project clients to v2 capability/gateway contracts |
+| V2-5 Supervisor | COMPLETE | deterministic workflow decisions for delegate/wait/retry/verify/escalate/stop; retry budget and receipts |
+| V2-6 Control Center v2 | COMPLETE | v2 module status plus health/metrics operational surface; remains private behind Cloudflare Access |
+| V2-7 Project migration | COMPLETE CONTRACTS | all five existing adapters migrated to schema v2 with v1 compatibility and project-specific safety constraints |
 | V2-8 Production activation + benchmark | EXTERNAL GATE | requires live VPS/Cloudflare/OpenRouter/Playwright runtime verification |
+
+## Project migration state
+
+- `52clips`: v2 router/gateway/context/supervisor enabled; browser disabled.
+- `attendance-report-generator`: v2 deterministic-first document workflow; browser disabled.
+- `handbook`: v2 browser planning enabled; production publishing remains human-approved.
+- `goffice2026`: v2 browser planning enabled; production deployment remains human-approved.
+- `dbplant`: read-only default retained; gateway execution and browser disabled; destructive actions denied.
+
+Project adapter declarations do not grant execution permission. Hard policy, machine identity scopes, environment rules, and explicit approvals remain authoritative.
 
 ## Browser activation state
 

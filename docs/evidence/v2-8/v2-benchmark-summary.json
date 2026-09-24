@@ -1,7 +1,7 @@
 {
-  "generated": "2026-09-25T02:26:16+0700",
-  "source_sha": "fca4f8f48660af9965c938cc3c0955cdf4d3aef7",
-  "release": "/home/prinyaroot/agent-core/releases/fca4f8f",
+  "generated": "2026-09-25T02:30:35+0700",
+  "source_sha": "4246c0a5d05a35f0efa0ea7b94ca17887c8db2a8",
+  "release": "/home/prinyaroot/agent-core/releases/4246c0a",
   "runtime_version": "0.6.0",
   "sample_count": 54,
   "cases": 18,
@@ -17,41 +17,41 @@
   "task_completion_rate": 1.0,
   "provider_failure_rate": 1.0,
   "latency_ms": {
-    "p50": 2.2,
-    "p95": 716.4,
-    "min": 1.6,
-    "max": 1057.2
+    "p50": 2.4,
+    "p95": 505.7,
+    "min": 1.5,
+    "max": 1002.6
   },
   "per_case": {
     "BENCH-01": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.7
+      "p50_ms": 3.1
     },
     "BENCH-02": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.7
+      "p50_ms": 2.2
     },
     "BENCH-03": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.8
+      "p50_ms": 1.7
     },
     "BENCH-04": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.2
+      "p50_ms": 2.0
     },
     "BENCH-05": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 4.3
+      "p50_ms": 5.1
     },
     "BENCH-06": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.8
+      "p50_ms": 2.0
     },
     "BENCH-07": {
       "runs": 3,
@@ -61,57 +61,57 @@
     "BENCH-08": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.7
+      "p50_ms": 1.6
     },
     "BENCH-09": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.7
+      "p50_ms": 1.6
     },
     "BENCH-10": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 1.8
+      "p50_ms": 1.6
     },
     "BENCH-11": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 5.0
+      "p50_ms": 4.9
     },
     "BENCH-12": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 324.0
+      "p50_ms": 326.5
     },
     "BENCH-13": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 3.4
+      "p50_ms": 2.9
     },
     "BENCH-14": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 2.0
+      "p50_ms": 1.7
     },
     "BENCH-15": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 4.1
+      "p50_ms": 3.9
     },
     "BENCH-16": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 946.0
+      "p50_ms": 967.4
     },
     "BENCH-17": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 3.4
+      "p50_ms": 4.1
     },
     "BENCH-18": {
       "runs": 3,
       "pass": 3,
-      "p50_ms": 5.9
+      "p50_ms": 4.2
     }
   },
   "cost_per_task": "NOT_AVAILABLE",

@@ -63,6 +63,28 @@ Harness: `ops/v2-benchmark.py --reps 3` · Raw: `docs/evidence/v2-8/v2-benchmark
 | Latency min / max | 1.1 ms / 980.0 ms |
 | Cost per task | `NOT_AVAILABLE` |
 
+## 4b. Re-run on the final deployed release
+
+After PR #16 (docs-only) the deploy tree moved to `main` @ `4246c0a`; the suite was re-run there to
+tie the numbers to the exact deployed release:
+
+| Metric | `fca4f8f` | `4246c0a` (deployed) |
+|---|---|---|
+| Cases / samples | 18 / 54 | 18 / 54 |
+| Pass / fail | 54 / 0 | **54 / 0** |
+| p50 | 2.2 ms | **2.4 ms** |
+| p95 | 716.4 ms | **505.7 ms** |
+| min / max | 1.1 / 980.0 ms | 1.5 / 1002.6 ms |
+| Routing success | 0.833 | 0.833 |
+| Fallback / retry rate | 0.0556 / 0.0556 | 0.0556 / 0.0556 |
+| Policy blocks | 9 | 9 |
+| Context reduction | 0.5105 | 0.5105 |
+| Live MCP execution p50 (BENCH-16) | 946.0 ms | 967.4 ms |
+| Kill-switch / MCP-down p50 (17/18) | 3.4 / 5.9 ms | 4.1 / 4.2 ms |
+
+The difference between the two runs is provider latency (the live Jev call), which is what p95 is
+dominated by; local control-plane latencies are unchanged. Both runs passed 54/54.
+
 ## 5. Interpretation
 
 - Local control-plane work (auth, routing, policy, governance, contracts) stays at **~1.6–5 ms p50**.

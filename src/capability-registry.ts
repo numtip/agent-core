@@ -115,14 +115,20 @@ const defaultCapabilities: Capability[] = [
   {
     id: "mcp.playwright",
     kind: "MCP",
-    description: "Browser automation through Playwright MCP. Registered now but activated in the Browser phase.",
+    description: "Policy-controlled Playwright MCP handoff for browser inspection, navigation, input and approved web actions.",
     tags: ["browser", "playwright", "web", "qa"],
-    operations: ["READ", "WRITE", "EXTERNAL"],
+    operations: ["READ", "WRITE", "EXTERNAL", "DESTRUCTIVE"],
     projects: ["*"],
     risk: "HIGH",
-    status: "PLANNED",
+    status: "ACTIVE",
     priority: 65,
-    metadata: { phase: "V2-4" }
+    metadata: {
+      phase: "V2-4",
+      execution_mode: "HANDOFF",
+      control_plane: "browser-control",
+      requires_explicit_browser_scope: true,
+      live_transport_requires_runtime_adapter: true
+    }
   }
 ];
 

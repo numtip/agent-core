@@ -3,7 +3,7 @@
 ## Current runtime line
 
 - **Agent Core runtime version:** `0.6.0`
-- **Deployed release:** `~/agent-core/releases/fca4f8f` (merged `main`, PR #14 + PR #15) on host `10.1.254.237`
+- **Deployed release:** `~/agent-core/releases/4246c0a` (merged `main`: PR #14 + PR #15 + PR #16) on host `10.1.254.237`
 - **Architecture:** Agent Core v2 AI Control Plane
 - **v1 API compatibility:** preserved (verified live: `/v1/decision`, `/v1/route`, `/v1/qa`, `/v1/context`, `/v1/subagent`, `/v1/advanced-route`, `/v1/projects`, `/v1/metrics`, `/v1/control-metrics` all 200)
 - **V2-8 production activation:** executed, verified and reported —

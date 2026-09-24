@@ -1,6 +1,6 @@
 # Agent Core v2 — V2-8 Live QA Report
 
-Host `10.1.254.237` · runtime `0.6.0` · release `fca4f8f` (merged `main`) · executed 2026-09-25 01:46–02:30 (+07)
+Host `10.1.254.237` · runtime `0.6.0` · release `4246c0a` (merged `main`; live suite re-run on this exact release) · executed 2026-09-25 01:46–02:31 (+07)
 Raw evidence (`docs/evidence/v2-8/`): `v2-qa-live.jsonl` (70), `v2-qa-isolated.jsonl` (17),
 `v2-supervisor-qa.jsonl` (20), `v2-browser-mcp.jsonl` (8), `v2-edge-qa.jsonl` (7),
 `v2-benchmark.jsonl` (54).

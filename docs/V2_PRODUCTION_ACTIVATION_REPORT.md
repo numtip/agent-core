@@ -1,8 +1,8 @@
 # Agent Core v2 — V2-8 Production Activation Report
 
-Host: `10.1.254.237` (`ubantu24`) · Repo: `numtip/agent-core` · Branch: `main` @ `fca4f8f`
-Deployed release: `~/agent-core/releases/fca4f8f` (merged `main`, PR #15) · runtime `0.6.0`
-Test window: 2026-09-25 01:42 – 02:30 (+07) · Executor: Hermes Agent
+Host: `10.1.254.237` (`ubantu24`) · Repo: `numtip/agent-core` · Branch: `main` @ `4246c0a` (code-identical to `fca4f8f`; PR #16 was docs-only)
+Deployed release: `~/agent-core/releases/4246c0a` (built, tested and QA-verified from merged `main`) · runtime `0.6.0`
+Test window: 2026-09-25 01:42 – 02:31 (+07) · Executor: Hermes Agent
 
 ---
 
@@ -15,16 +15,16 @@ kill switch.
 
 | Gate | Result |
 |---|---|
-| Source | `main` @ `fca4f8f` (PR #14 hardening + PR #15 browser execution merged) |
+| Source | `main` @ `4246c0a` (PR #14 hardening + PR #15 browser execution + PR #16 reports merged) |
 | Dependency audit (prod) | **0 vulnerabilities** |
 | Unit tests | **68/68 PASS** (14 files) |
 | TypeScript build | **PASS** |
-| Live QA (loopback origin) | **70/70 PASS** (incl. 12 live browser-execution cases) |
+| Live QA (loopback origin) | **70/70 PASS** (re-run on release `4246c0a`) (incl. 12 live browser-execution cases) |
 | Isolated-instance QA | **17/17 PASS** (dbplant policy, provider failure, kill switch off, MCP down) |
 | Supervisor matrix | **10/10 PASS** |
 | Playwright MCP transport | **8/8 PASS** (real Chromium navigation + DOM evaluation) |
 | Cloudflare edge QA | **7/7 PASS** (normal, auth, burst → 429, recovery, Access unchanged) |
-| Benchmark | **18 cases × 3 reps = 54/54 PASS**, p50 2.2 ms, p95 716 ms, context reduction 0.51, cost `NOT_AVAILABLE` |
+| Benchmark | **18 cases × 3 reps = 54/54 PASS**, p50 2.4 ms, p95 505.7 ms (previous run on `fca4f8f`: p50 2.2 / p95 716 ms), context reduction 0.51, cost `NOT_AVAILABLE` |
 | Rollback rehearsal | previous release healthy in **0.59 s**, roll-forward **0.59 s**, window **1.21 s**; MCP stop → clean 503 in 54 ms |
 | Security invariants | held in every adversarial case (auth, impersonation, policy bypass, SSRF/private targets, prompt injection, dbplant write, production/destructive writes, secret hygiene) |
 
@@ -48,8 +48,8 @@ with live evidence. Remaining warnings (§12) are recorded open items, not safet
 
 | Item | Value |
 |---|---|
-| `origin/main` | `fca4f8f48660af9965c938cc3c0955cdf4d3aef7` (merge of PR #15) |
-| Deployed tree | `~/agent-core/releases/fca4f8f` (built + tested on `main`) |
+| `origin/main` | `4246c0a5d05a35f0efa0ea7b94ca17887c8db2a8` (merge of PR #16; code identical to `fca4f8f`) |
+| Deployed tree | `~/agent-core/releases/4246c0a` (built + tested on `main`; 68/68 tests, tsc clean) |
 | Rollback targets | `~/agent-core/releases/bf08030-h1`, `~/agent-core/releases/188de03` (pre-V2, `0.2.0`) |
 | Deployment method | repository-native user-space layout: `~/agent-core/releases/<sha>` + `current` symlink + `systemd --user` `agent-core.service` |
 | Service | active, enabled, `Restart=on-failure`, `NoNewPrivileges`, `PrivateTmp`, `Linger=yes` (boot-safe) |

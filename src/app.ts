@@ -8,6 +8,7 @@ import { RateLimiter } from "./rate-limit.js";
 import { AuditLogger, Metrics } from "./telemetry.js";
 import { contextRequestSchema, selectContext } from "./context.js";
 import { contextGovernorRequestSchema, governContext } from "./context-governor.js";
+import { browserPlanRequestSchema, planBrowserAction } from "./browser-control.js";
 import { listProjects } from "./projects.js";
 import { evaluateHardPolicy } from "./policy.js";
 import { subagentRequestSchema, planSubagent } from "./subagent.js";
@@ -43,7 +44,7 @@ export function buildApp(deps:AppDependencies={}) {
     };
   }
 
-  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.5.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
+  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.6.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
 
   async function handleDecision(request:FastifyRequest,reply:FastifyReply){
     const parsed=decisionRequestSchema.safeParse(request.body);
@@ -155,6 +156,17 @@ export function buildApp(deps:AppDependencies={}) {
     const reduction=Math.max(0,result.receipt.original_chars-result.receipt.output_chars);
     metrics.increment("context_chars_reduced",reduction);
     await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"CONTEXT_GOVERN",result:result.receipt.receipt_id,task_id:parsed.data.task_id,fallback:false});
+    return result;
+  });
+
+  app.post("/v2/browser/plan",{preHandler:guard("browser")},async(request,reply)=>{
+    const parsed=browserPlanRequestSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    const result=planBrowserAction(parsed.data);
+    metrics.increment("browser_plans");
+    if(result.disposition==="DENY" || result.disposition==="HUMAN_REVIEW" || result.disposition==="EXPLICIT_WRITE_SCOPE_REQUIRED")metrics.increment("browser_policy_blocks");
+    await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:parsed.data.action,result:result.disposition,task_id:parsed.data.task_id,fallback:false});
     return result;
   });
 

@@ -18,10 +18,13 @@ const provider = { decide: async () => ({ result:"NOOP", confidence:0.99, provid
 const headers={"x-agent-project":"52clips","x-agent-project-token":"secret-52"};
 
 describe("Agent Core v2 capability registry",()=>{
-  it("keeps planned browser capability out of active candidates by default",()=>{
+  it("activates Playwright only as a policy-controlled handoff capability",()=>{
     const registry=createDefaultCapabilityRegistry();
-    expect(registry.get("mcp.playwright")?.status).toBe("PLANNED");
-    expect(registry.candidates({project:"52clips",operation:"READ"}).some((x)=>x.id==="mcp.playwright")).toBe(false);
+    const playwright=registry.get("mcp.playwright");
+    expect(playwright?.status).toBe("ACTIVE");
+    expect(playwright?.metadata.execution_mode).toBe("HANDOFF");
+    expect(playwright?.metadata.live_transport_requires_runtime_adapter).toBe(true);
+    expect(registry.candidates({project:"52clips",operation:"READ"}).some((x)=>x.id==="mcp.playwright")).toBe(true);
   });
 
   it("rejects duplicate capability ids",()=>{

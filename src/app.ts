@@ -13,6 +13,8 @@ import { subagentRequestSchema, planSubagent } from "./subagent.js";
 import { dashboardHtml } from "./dashboard.js";
 import { advancedRouteSchema, advancedRoute } from "./advanced-router.js";
 import { SubgoalRegistry } from "./subgoal-registry.js";
+import { createDefaultCapabilityRegistry } from "./capability-registry.js";
+import { unifiedRoute, unifiedRouteRequestSchema } from "./unified-router.js";
 import { z } from "zod";
 
 export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger };
@@ -26,6 +28,7 @@ export function buildApp(deps:AppDependencies={}) {
   const limiter=new RateLimiter(config.rateLimitMax,config.rateLimitWindowMs);
   const app=Fastify({logger:true});
   const subgoals=new SubgoalRegistry();
+  const capabilities=createDefaultCapabilityRegistry();
 
   function guard(scope:string){
     return async (request:FastifyRequest,reply:FastifyReply)=>{
@@ -38,7 +41,7 @@ export function buildApp(deps:AppDependencies={}) {
     };
   }
 
-  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.2.0",jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
+  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.3.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
 
   async function handleDecision(request:FastifyRequest,reply:FastifyReply){
     const parsed=decisionRequestSchema.safeParse(request.body);
@@ -94,6 +97,32 @@ export function buildApp(deps:AppDependencies={}) {
     if(policy.disposition!=="ALLOW")return {tier:"HUMAN_REVIEW",reason:policy.reason,policy};
     metrics.increment("advanced_routes");
     return {...advancedRoute(parsed.data),policy};
+  });
+
+  app.get("/v2/capabilities",{preHandler:guard("route")},async()=>({
+    schema_version:2,
+    capabilities:capabilities.list()
+  }));
+
+  app.post("/v2/route",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=unifiedRouteRequestSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    const started=Date.now();
+    const result=unifiedRoute(capabilities,parsed.data);
+    const latency=Date.now()-started;
+    metrics.increment("v2_routes");
+    metrics.observeLatency(latency);
+    await audit.write({
+      timestamp:new Date().toISOString(),
+      project:parsed.data.project,
+      route:request.url,
+      action:"UNIFIED_ROUTE",
+      result:result.selected?.id ?? result.disposition,
+      latency_ms:latency,
+      fallback:false
+    });
+    return result;
   });
 
   app.get("/v1/projects",{preHandler:guard("metrics")},async()=>({projects:listProjects()}));

@@ -13,7 +13,7 @@ const base: RuntimeConfig = {
     goffice2026: ["route", "browser"],
     dbplant: ["route"],
   },
-  rateLimitMax: 1000, rateLimitWindowMs: 60000, auditLogPath: null,
+  rateLimitMax: 1000, rateLimitWindowMs: 60000, auditLogPath: null,playwrightMcpExecutionEnabled:false,playwrightMcpEndpoint:"http://127.0.0.1:8791/mcp",playwrightMcpTimeoutMs:5000
 };
 const provider = { decide: async () => ({ result: "x", confidence: 0.9, providerRequestId: "x" }) } as unknown as JevProvider;
 

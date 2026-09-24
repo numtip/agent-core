@@ -18,9 +18,10 @@ import { SubgoalRegistry } from "./subgoal-registry.js";
 import { createDefaultCapabilityRegistry } from "./capability-registry.js";
 import { unifiedRoute, unifiedRouteRequestSchema } from "./unified-router.js";
 import { capabilitySearchSchema, executeRequestSchema, interceptExecution, searchCapabilities, discloseCapability } from "./gateway.js";
+import { DisabledMcpClient, McpUnavailableError, newReceiptId, PlaywrightMcpClient, type McpPlaywrightClient } from "./mcp-playwright.js";
 import { z } from "zod";
 
-export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger };
+export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger; mcp?:McpPlaywrightClient };
 
 export function buildApp(deps:AppDependencies={}) {
   const config=deps.config ?? loadConfig();
@@ -32,6 +33,11 @@ export function buildApp(deps:AppDependencies={}) {
   const app=Fastify({logger:true});
   const subgoals=new SubgoalRegistry();
   const capabilities=createDefaultCapabilityRegistry();
+  const mcp:McpPlaywrightClient=deps.mcp ?? new PlaywrightMcpClient({
+    enabled:config.playwrightMcpExecutionEnabled,
+    endpoint:config.playwrightMcpEndpoint,
+    timeoutMs:config.playwrightMcpTimeoutMs
+  });
 
   function guard(scope:string){
     return async (request:FastifyRequest,reply:FastifyReply)=>{
@@ -176,6 +182,103 @@ export function buildApp(deps:AppDependencies={}) {
     if(result.disposition==="DENY" || result.disposition==="HUMAN_REVIEW" || result.disposition==="EXPLICIT_WRITE_SCOPE_REQUIRED")metrics.increment("browser_policy_blocks");
     await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:parsed.data.action,result:result.disposition,task_id:parsed.data.task_id,fallback:false});
     return result;
+  });
+
+  // V2-8 live browser execution. The mandated pipeline is:
+  //   auth -> project scope -> hard policy -> browser control -> URL/SSRF guard ->
+  //   prompt-injection guard -> approval gates -> MCP runtime
+  // Nothing is executed unless browser-control's own plan says READY.
+  app.post("/v2/browser/execute",{preHandler:guard("browser")},async(request,reply)=>{
+    const parsed=browserPlanRequestSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+
+    const plan=planBrowserAction(parsed.data);
+    const started=Date.now();
+    const base={
+      project:parsed.data.project,
+      task_id:parsed.data.task_id??null,
+      url:parsed.data.url,
+      action:parsed.data.action
+    };
+
+    // Hard policy / SSRF / injection / approval gates decided by browser-control, not here.
+    if(plan.disposition!=="READY"){
+      metrics.increment("browser_execution_blocks");
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:plan.disposition,task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(200).send({...plan,executed:false});
+    }
+
+    // Kill switch: live execution stays off unless the operator enabled it.
+    if(!mcp.isEnabled()){
+      metrics.increment("browser_execution_disabled");
+      const disabled={...plan,executed:false,reason:"MCP_EXECUTION_DISABLED",
+        execution:{enabled:false,endpoint:mcp.endpoint(),tool:null},
+        receipt:{receipt_id:newReceiptId(),project:parsed.data.project,task_id:parsed.data.task_id??null,
+                 url:plan.receipt?.url??parsed.data.url,action:parsed.data.action,executed_at:new Date().toISOString(),
+                 latency_ms:Date.now()-started,mcp:{endpoint:mcp.endpoint(),tool:null,session_id:null}}};
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:"MCP_EXECUTION_DISABLED",task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(200).send(disabled);
+    }
+
+    if(plan.risk==="HIGH"){
+      // defensive: write-like browser risk must never reach the transport
+      metrics.increment("browser_execution_blocks");
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:"HIGH_RISK_BLOCKED",task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(200).send({...plan,executed:false,reason:"HIGH_RISK_REQUIRES_APPROVAL"});
+    }
+
+    try{
+      const navigation=await mcp.callTool("browser_navigate",{url:parsed.data.url},config.playwrightMcpTimeoutMs);
+      let toolResult=navigation;
+      let typed:null|{tool:string;input_chars:number}=null;
+      if(parsed.data.action==="BROWSER_INPUT"){
+        if(!parsed.data.element_ref){
+          metrics.increment("browser_execution_incomplete");
+          await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+            action:parsed.data.action,result:"NEEDS_ELEMENT_REF",task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+          return reply.code(200).send({...plan,executed:false,reason:"BROWSER_INPUT_REQUIRES_ELEMENT_REF",
+            execution:{enabled:true,endpoint:mcp.endpoint(),tool:"browser_navigate"}});
+        }
+        toolResult=await mcp.callTool("browser_type",{element:parsed.data.element_ref,text:parsed.data.input_text??"",ref:parsed.data.element_ref},config.playwrightMcpTimeoutMs);
+        typed={tool:"browser_type",input_chars:(parsed.data.input_text??"").length};
+      }
+      metrics.increment("browser_executions");
+      metrics.observeLatency(Date.now()-started);
+      const receipt={
+        receipt_id:newReceiptId(),
+        ...base,
+        executed_at:new Date().toISOString(),
+        latency_ms:Date.now()-started,
+        mcp:{endpoint:mcp.endpoint(),tool:toolResult.tool,session_id:toolResult.session_id,mcp_latency_ms:toolResult.latency_ms}
+      };
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:toolResult.isError?"MCP_TOOL_ERROR":"MCP_EXECUTED",
+        task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(200).send({
+        disposition:"EXECUTED",
+        executed:true,
+        plan:{policy:plan.policy,injection:plan.injection,risk:plan.risk},
+        receipt,
+        result:{tool:toolResult.tool,is_error:toolResult.isError,text:toolResult.text.slice(0,4000),typed}
+      });
+    }catch(error){
+      const unavailable=error instanceof McpUnavailableError;
+      metrics.increment(unavailable?"browser_execution_unavailable":"browser_execution_failures");
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:unavailable?"MCP_UNAVAILABLE":"MCP_TOOL_ERROR",
+        task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(unavailable?503:502).send({
+        error:unavailable?"MCP_UNAVAILABLE":"MCP_TOOL_ERROR",
+        reason:error instanceof Error?error.message:"unknown MCP failure",
+        executed:false,
+        plan:{policy:plan.policy,injection:plan.injection,risk:plan.risk},
+        execution:{enabled:true,endpoint:mcp.endpoint(),tool:"browser_navigate"}
+      });
+    }
   });
 
   app.get("/v1/projects",{preHandler:guard("metrics")},async()=>({projects:listProjects()}));

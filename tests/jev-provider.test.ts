@@ -18,7 +18,7 @@ const config: RuntimeConfig = {
   projectScopes: {},
   rateLimitMax: 100,
   rateLimitWindowMs: 60000,
-  auditLogPath: null
+  auditLogPath: null,playwrightMcpExecutionEnabled:false,playwrightMcpEndpoint:"http://127.0.0.1:8791/mcp",playwrightMcpTimeoutMs:5000
 };
 
 describe("JevProvider", () => {

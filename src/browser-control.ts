@@ -19,6 +19,7 @@ export const browserPlanRequestSchema=z.object({
   action:browserActionSchema,
   page_text:z.string().max(200000).default(""),
   input_text:z.string().max(20000).optional(),
+  element_ref:z.string().min(1).optional(),
   allow_domains:z.array(z.string().min(1)).default([]),
   deny_domains:z.array(z.string().min(1)).default([]),
   environment:z.enum(["local","preview","production"]).default("local"),

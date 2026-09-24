@@ -11,7 +11,7 @@ const config: RuntimeConfig = {
   requestTimeoutMs:1000, confidenceExecute:0.85, confidenceReview:0.60,
   authRequired:true, projectKeys:{"52clips":"secret-52"},
   projectScopes:{"52clips":["decision","route","qa","context","metrics"]},
-  rateLimitMax:100, rateLimitWindowMs:60000, auditLogPath:null
+  rateLimitMax:100, rateLimitWindowMs:60000, auditLogPath: null,playwrightMcpExecutionEnabled:false,playwrightMcpEndpoint:"http://127.0.0.1:8791/mcp",playwrightMcpTimeoutMs:5000
 };
 
 const provider = { decide: async () => ({ result:"NOOP", confidence:0.99, providerRequestId:"req-test" }) } as unknown as JevProvider;

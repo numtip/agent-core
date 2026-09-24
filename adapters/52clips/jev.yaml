@@ -1,15 +1,29 @@
-schema_version: 1
+schema_version: 2
 project:
   id: 52clips
   type: media-production
+platform:
+  api: v2
+  capability_registry: true
+  gateway: true
+  context_governor: true
+  supervisor: true
 features:
   next_action: true
   qa_disposition: true
   subagent_route: true
   context_route: true
+  unified_route: true
+  gateway_execute: true
+  context_govern: true
+  supervisor: true
+  browser: false
 policy:
   production_release: human_approval
   destructive: ask
 context:
   strategy: task_specific
   max_candidates: 40
+migration:
+  v1_compatible: true
+  preferred_api: v2

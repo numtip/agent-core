@@ -1,10 +1,25 @@
-schema_version: 1
+schema_version: 2
 project:
   id: handbook
   type: content-publication
+platform:
+  api: v2
+  capability_registry: true
+  gateway: true
+  context_governor: true
+  supervisor: true
 features:
   task_route: true
   qa_disposition: true
   context_route: true
+  unified_route: true
+  gateway_execute: true
+  context_govern: true
+  supervisor: true
+  browser: true
 policy:
   production_publish: human_approval
+  browser_external_write: explicit_scope
+migration:
+  v1_compatible: true
+  preferred_api: v2

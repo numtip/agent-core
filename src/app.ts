@@ -139,11 +139,19 @@ export function buildApp(deps:AppDependencies={}) {
     if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
     const started=Date.now();
     const result=interceptExecution(capabilities,parsed.data);
+    // Browser-class capabilities additionally require the explicit `browser` scope:
+    // capability availability must never outrank project scope (V2 security invariant).
+    const selectedId=(result.selected && "id" in result.selected) ? String(result.selected.id) : null;
+    if(selectedId?.startsWith("mcp.") && request.projectIdentity && !hasScope(request.projectIdentity,"browser")){
+      metrics.increment("browser_scope_denials");
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"GATEWAY_INTERCEPT",result:"FORBIDDEN_BROWSER_SCOPE",latency_ms:Date.now()-started,fallback:false});
+      return reply.code(403).send({error:"FORBIDDEN",scope:"browser",capability_id:selectedId});
+    }
     const latency=Date.now()-started;
     metrics.increment("gateway_requests");
     if(result.disposition==="APPROVAL_REQUIRED")metrics.increment("policy_blocks");
     metrics.observeLatency(latency);
-    await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"GATEWAY_INTERCEPT",result:result.selected && "id" in result.selected ? String(result.selected.id) : result.disposition,latency_ms:latency,fallback:false});
+    await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"GATEWAY_INTERCEPT",result:selectedId ?? result.disposition,latency_ms:latency,fallback:false});
     return result;
   });
 

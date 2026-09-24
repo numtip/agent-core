@@ -27,6 +27,34 @@ describe("V2 browser control",()=>{
     const result=planBrowserAction({project:"handbook",url:"https://example.com/form",action:"BROWSER_SUBMIT"});
     expect(result.disposition).toBe("EXPLICIT_WRITE_SCOPE_REQUIRED");
   });
+
+  it("blocks IPv6 loopback, link-local, ULA and IPv4-mapped private targets",()=>{
+    const blocked=[
+      "http://[::1]/",
+      "http://[::1]:8097/admin",
+      "http://[::]/",
+      "http://[fe80::1]/",
+      "http://[fd00::1]/",
+      "http://[fc00::1]/",
+      "http://[::ffff:127.0.0.1]/",
+      "http://[::ffff:10.1.254.237]/",
+      "http://2130706433/",
+      "http://0x7f000001/",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://172.16.0.5/",
+      "http://localhost:8097/",
+      "http://foo.localhost/"
+    ];
+    for(const url of blocked){
+      const result=planBrowserAction({project:"handbook",url,action:"BROWSER_NAVIGATE"});
+      expect(result.disposition,url).toBe("DENY");
+    }
+  });
+
+  it("still allows a public host after the private-range hardening",()=>{
+    const result=planBrowserAction({project:"handbook",url:"https://example.com/",action:"BROWSER_NAVIGATE"});
+    expect(result.disposition).toBe("READY");
+  });
 });
 
 const config:RuntimeConfig={

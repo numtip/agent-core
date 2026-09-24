@@ -15,6 +15,7 @@ import { advancedRouteSchema, advancedRoute } from "./advanced-router.js";
 import { SubgoalRegistry } from "./subgoal-registry.js";
 import { createDefaultCapabilityRegistry } from "./capability-registry.js";
 import { unifiedRoute, unifiedRouteRequestSchema } from "./unified-router.js";
+import { capabilitySearchSchema, executeRequestSchema, interceptExecution, searchCapabilities, discloseCapability } from "./gateway.js";
 import { z } from "zod";
 
 export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger };
@@ -41,7 +42,7 @@ export function buildApp(deps:AppDependencies={}) {
     };
   }
 
-  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.3.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
+  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.4.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
 
   async function handleDecision(request:FastifyRequest,reply:FastifyReply){
     const parsed=decisionRequestSchema.safeParse(request.body);
@@ -99,10 +100,23 @@ export function buildApp(deps:AppDependencies={}) {
     return {...advancedRoute(parsed.data),policy};
   });
 
-  app.get("/v2/capabilities",{preHandler:guard("route")},async()=>({
-    schema_version:2,
-    capabilities:capabilities.list()
-  }));
+  app.get("/v2/capabilities",{preHandler:guard("route")},async()=>({schema_version:2,capabilities:capabilities.list()}));
+
+  app.get("/v2/capabilities/:id",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=z.object({id:z.string().min(1)}).safeParse(request.params);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST"});
+    const capability=capabilities.get(parsed.data.id);
+    if(!capability)return reply.code(404).send({error:"CAPABILITY_NOT_FOUND"});
+    return discloseCapability(capability,"full");
+  });
+
+  app.post("/v2/capabilities/search",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=capabilitySearchSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    metrics.increment("capability_searches");
+    return searchCapabilities(capabilities,parsed.data);
+  });
 
   app.post("/v2/route",{preHandler:guard("route")},async(request,reply)=>{
     const parsed=unifiedRouteRequestSchema.safeParse(request.body);
@@ -113,21 +127,26 @@ export function buildApp(deps:AppDependencies={}) {
     const latency=Date.now()-started;
     metrics.increment("v2_routes");
     metrics.observeLatency(latency);
-    await audit.write({
-      timestamp:new Date().toISOString(),
-      project:parsed.data.project,
-      route:request.url,
-      action:"UNIFIED_ROUTE",
-      result:result.selected?.id ?? result.disposition,
-      latency_ms:latency,
-      fallback:false
-    });
+    await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"UNIFIED_ROUTE",result:result.selected?.id ?? result.disposition,latency_ms:latency,fallback:false});
+    return result;
+  });
+
+  app.post("/v2/execute",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=executeRequestSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    const started=Date.now();
+    const result=interceptExecution(capabilities,parsed.data);
+    const latency=Date.now()-started;
+    metrics.increment("gateway_requests");
+    if(result.disposition==="APPROVAL_REQUIRED")metrics.increment("policy_blocks");
+    metrics.observeLatency(latency);
+    await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"GATEWAY_INTERCEPT",result:result.selected && "id" in result.selected ? String(result.selected.id) : result.disposition,latency_ms:latency,fallback:false});
     return result;
   });
 
   app.get("/v1/projects",{preHandler:guard("metrics")},async()=>({projects:listProjects()}));
   app.get("/v1/metrics",{preHandler:guard("metrics")},async()=>metrics.snapshot());
-  // Human control-center routes rely on Cloudflare Access at the edge; origin remains loopback-only.
   app.get("/v1/control-metrics",async()=>metrics.snapshot());
   app.get("/control",async(_request,reply)=>reply.type("text/html; charset=utf-8").send(dashboardHtml()));
 

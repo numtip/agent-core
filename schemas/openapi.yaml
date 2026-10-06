@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Core API
-  version: 0.2.0
+  version: 0.7.0
   description: Shared AI decision, routing, context, QA and observability API.
 servers:
   - url: https://agent.example.com
@@ -50,6 +50,35 @@ components:
         fallback: {type: boolean}
         disposition: {type: string, enum: [EXECUTE, REVIEW, FALLBACK]}
         provider_request_id: {type: [string, "null"]}
+    KnowledgeEvidence:
+      type: object
+      additionalProperties: false
+      required: [id, text]
+      properties:
+        id: {type: string, minLength: 1}
+        text: {type: string, minLength: 1}
+        path: {type: string}
+        repository: {type: string}
+        source_url: {type: string, format: uri}
+        revision: {type: string}
+        kind: {type: string, default: knowledge}
+        importance: {type: number, minimum: 0, maximum: 1, default: 0.5}
+    KnowledgeQuery:
+      type: object
+      additionalProperties: false
+      required: [project, query]
+      properties:
+        project: {type: string, minLength: 1}
+        task_id: {type: string}
+        query: {type: string, minLength: 1}
+        workspace: {type: string}
+        repositories: {type: array, items: {type: string}, maxItems: 50}
+        limit: {type: integer, minimum: 1, maximum: 50, default: 10}
+        max_context_items: {type: integer, minimum: 1, maximum: 100, default: 12}
+        evidence:
+          type: array
+          maxItems: 200
+          items: {$ref: "#/components/schemas/KnowledgeEvidence"}
 security:
   - ProjectId: []
     ProjectToken: []
@@ -119,6 +148,21 @@ paths:
       summary: Apply security, complexity and cost-aware execution routing
       responses:
         "200": {description: Advanced route result}
+  /v2/knowledge/query:
+    post:
+      summary: Plan a read-only OpenWiki retrieval or govern returned knowledge evidence
+      description: Knowledge is context-only and cannot authorize execution. Uses the existing context scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/KnowledgeQuery"}
+      responses:
+        "200": {description: OpenWiki handoff or governed context bundle}
+        "400": {description: Invalid request}
+        "401": {description: Unauthorized}
+        "403": {description: Forbidden or project mismatch}
+        "429": {description: Rate limited}
   /v1/projects:
     get:
       summary: List registered project profiles

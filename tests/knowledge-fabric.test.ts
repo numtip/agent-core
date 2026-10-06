@@ -16,8 +16,9 @@ describe("V2-9 Knowledge Fabric",()=>{
   it("returns a read-only OpenWiki handoff when evidence is not supplied",()=>{
     const result=queryKnowledgeFabric({project:"agent-core",query:"deployment architecture",repositories:["numtip/agent-core"]});
     expect(result.disposition).toBe("HANDOFF");
-    expect("handoff" in result && result.handoff.capability_id).toBe("knowledge.openwiki");
-    expect("guardrails" in result && result.guardrails.knowledge_is_not_authority).toBe(true);
+    if(result.disposition!=="HANDOFF") throw new Error("expected HANDOFF");
+    expect(result.handoff.capability_id).toBe("knowledge.openwiki");
+    expect(result.guardrails.knowledge_is_not_authority).toBe(true);
   });
 
   it("governs returned evidence before exposing it as context",()=>{
@@ -31,8 +32,9 @@ describe("V2-9 Knowledge Fabric",()=>{
       ]
     });
     expect(result.disposition).toBe("CONTEXT_READY");
-    expect("context" in result && result.context.bundle.some((item)=>item.id==="deploy")).toBe(true);
-    expect("provenance" in result && result.provenance[0].revision).toBe("abc123");
+    if(result.disposition!=="CONTEXT_READY") throw new Error("expected CONTEXT_READY");
+    expect(result.context.bundle.some((item)=>item.id==="deploy")).toBe(true);
+    expect(result.provenance[0]?.revision).toBe("abc123");
   });
 });
 

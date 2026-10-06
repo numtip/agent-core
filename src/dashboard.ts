@@ -13,6 +13,7 @@ body{font-family:system-ui,sans-serif;margin:40px;max-width:1200px;background:#1
   <div class="card"><h2>Unified Router</h2><p class="ok">ACTIVE</p><small>Capability registry + policy-first routing</small></div>
   <div class="card"><h2>Gateway</h2><p class="ok">ACTIVE</p><small>Progressive disclosure + execution contracts</small></div>
   <div class="card"><h2>Context Governor</h2><p class="ok">ACTIVE</p><small>KEEP / COMPRESS / DROP / PIN</small></div>
+  <div class="card"><h2>Knowledge Fabric</h2><p class="gate">OPENWIKI HANDOFF</p><small>Read-only evidence retrieval; context-only authority</small></div>
   <div class="card"><h2>Browser Control</h2><p class="gate">HANDOFF</p><small>Policy-controlled Playwright MCP; live transport externally gated</small></div>
   <div class="card"><h2>Supervisor</h2><p class="ok">ACTIVE</p><small>Retry, verify, delegate, wait, escalate, stop</small></div>
 </div>

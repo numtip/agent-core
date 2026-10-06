@@ -2,7 +2,7 @@
 
 ## Current runtime line
 
-- **Agent Core runtime version:** `0.6.0`
+- **Repository version:** `0.7.0` (V2-9 Knowledge Fabric candidate); **deployed production runtime remains `0.6.0` until live activation/QA**
 - **Deployed release:** `~/agent-core/releases/4246c0a` (merged `main`: PR #14 + PR #15 + PR #16) on host `10.1.254.237`
 - **Architecture:** Agent Core v2 AI Control Plane
 - **v1 API compatibility:** preserved (verified live: `/v1/decision`, `/v1/route`, `/v1/qa`, `/v1/context`, `/v1/subagent`, `/v1/advanced-route`, `/v1/projects`, `/v1/metrics`, `/v1/control-metrics` all 200)
@@ -42,6 +42,7 @@
 | V2-6 Control Center v2 | COMPLETE + LIVE | `/control` 200 internally, 302 behind Access externally, browser state shown as HANDOFF |
 | V2-7 Project migration | COMPLETE CONTRACTS | five adapters migrated; runtime scope/policy behaviour verified per project |
 | V2-8 Production activation + benchmark | COMPLETE | 112/112 QA cases, 54/54 benchmark samples, rollback + MCP-disable rehearsed, readiness `YES` |
+| V2-9 Knowledge Fabric / OpenWiki | CODE COMPLETE | read-only `knowledge.openwiki` capability, `/v2/knowledge/query`, evidence provenance + Context Governor; live OpenWiki transport remains activation-gated |
 
 ## Project migration state (live behaviour verified)
 

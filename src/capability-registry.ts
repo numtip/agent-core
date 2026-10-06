@@ -129,6 +129,26 @@ const defaultCapabilities: Capability[] = [
       requires_explicit_browser_scope: true,
       live_transport_requires_runtime_adapter: true
     }
+  },
+  {
+    id: "knowledge.openwiki",
+    kind: "MCP",
+    description: "Read-only OpenWiki knowledge retrieval for evidence-backed repository context.",
+    tags: ["knowledge", "openwiki", "wiki", "context", "retrieval", "evidence"],
+    operations: ["READ"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 88,
+    metadata: {
+      phase: "V2-9",
+      execution_mode: "HANDOFF",
+      transport: "OPENWIKI_MCP",
+      authority: "CONTEXT_ONLY",
+      read_only: true,
+      context_governor_required: true,
+      source_verification_required_before_execution: true
+    }
   }
 ];
 

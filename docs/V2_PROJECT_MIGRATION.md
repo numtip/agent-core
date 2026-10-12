@@ -11,6 +11,7 @@ Existing projects migrate by declaring `schema_version: 2`, preferring API `v2`,
 - **handbook** — v2 control plane with browser planning enabled; production publishing remains human-approved.
 - **goffice2026** — full v2 routing/gateway/context/supervisor plus browser planning; production deploy remains human-approved.
 - **dbplant** — read-only-first migration; gateway execution and browser remain disabled; writes require approval and destructive operations remain denied.
+- **rae-attendance-v2** — v2 routing/gateway/context/supervisor for architecture, migration, security, SSO, and release review; browser disabled; production deploy, SSO activation, and database writes remain human-approved.
 
 ## Migration rule
 

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const ids=["52clips","attendance-report-generator","handbook","goffice2026","dbplant"];
+const ids=["52clips","attendance-report-generator","handbook","goffice2026","dbplant","rae-attendance-v2"];
 function text(id:string){return readFileSync(new URL(`../adapters/${id}/jev.yaml`,import.meta.url),"utf8");}
 
 describe("Agent Core v2 project migration contracts",()=>{
@@ -29,5 +29,14 @@ describe("Agent Core v2 project migration contracts",()=>{
     expect(text("goffice2026")).toContain("browser: true");
     expect(text("52clips")).toContain("browser: false");
     expect(text("attendance-report-generator")).toContain("browser: false");
+    expect(text("rae-attendance-v2")).toContain("browser: false");
+  });
+
+  it("keeps rae-attendance-v2 human-gated for production paths",()=>{
+    const yaml=text("rae-attendance-v2");
+    expect(yaml).toContain("sso_enable_production: human_approval");
+    expect(yaml).toContain("production_deploy: human_approval");
+    expect(yaml).toContain("production_database_write: human_approval");
+    expect(yaml).toContain("destructive: ask");
   });
 });

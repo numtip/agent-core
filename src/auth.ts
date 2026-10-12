@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import type { RuntimeConfig } from "./config.js";
+import { findProject } from "./projects.js";
 
 export type ProjectIdentity = { project: string; scopes: string[] };
 
@@ -15,6 +16,13 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+function resolveProjectScopes(config: RuntimeConfig, project: string): string[] {
+  if (Object.hasOwn(config.projectScopes, project)) {
+    return config.projectScopes[project] ?? [];
+  }
+  return findProject(project)?.defaultScopes ?? [];
+}
+
 export function authenticateProject(config: RuntimeConfig, request: FastifyRequest): ProjectIdentity | null {
   if (!config.authRequired) return null;
   const project = String(request.headers["x-agent-project"] ?? "");
@@ -22,7 +30,7 @@ export function authenticateProject(config: RuntimeConfig, request: FastifyReque
   if (!project || !token) return null;
   const expected = config.projectKeys[project];
   if (!expected || !safeEqual(token, expected)) return null;
-  return { project, scopes: config.projectScopes[project] ?? ["decision","route","qa","context","metrics"] };
+  return { project, scopes: resolveProjectScopes(config, project) };
 }
 
 export function hasScope(identity: ProjectIdentity | undefined, scope: string): boolean {

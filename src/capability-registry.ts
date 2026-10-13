@@ -149,6 +149,27 @@ const defaultCapabilities: Capability[] = [
       context_governor_required: true,
       source_verification_required_before_execution: true
     }
+  },
+  {
+    id: "mcp.rea",
+    kind: "MCP",
+    description: "REA (Reverse Engineer Anything) MCP for bounded reverse-engineering via local Cursor handoff only.",
+    tags: ["reverse-engineering", "rea", "decompile", "security-research", "mcp"],
+    operations: ["READ", "EXTERNAL"],
+    projects: ["*"],
+    risk: "HIGH",
+    status: "PLANNED",
+    priority: 55,
+    metadata: {
+      phase: "PHASE-C",
+      execution_mode: "HANDOFF",
+      transport: "MCP",
+      sandbox_root: "F:/projectAi/REA",
+      setup_hint: "Human gate: complete docs/rea/LOCAL_PREFLIGHT.md before npx rea-agents setup",
+      integration: "project-side-cursor-mcp",
+      control_plane_execution: false,
+      vps_execution: false
+    }
   }
 ];
 

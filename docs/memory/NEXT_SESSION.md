@@ -1,8 +1,8 @@
 # Next session — resume guide
 
-**Start from:** `git fetch origin && git checkout main && git pull` (this note was written at `607b41e230a25a99c3481702a4260738b8d354af`; pull if `main` has moved).
+**Start from:** `git fetch origin && git checkout main && git pull` (this note was written at `c1411ebbee6a6633fbf8e7a5a8136bed6e9921f5`; pull if `main` has moved).
 
-**Closeout:** `SECURITY_SOURCE_MERGED — PRODUCTION_PENDING`. Do not deploy, restart, rotate tokens, or change Cloudflare or MCP from this note.
+**Closeout:** `SECURITY_SOURCE_MERGED — PRODUCTION_PENDING` · `CLOSEOUT_DOCUMENTED`. Do not deploy, restart, rotate tokens, or change Cloudflare, MCP, or the egress proxy from this note. `c1411eb` is docs on top of runtime `607b41e`. Neither is the running release.
 
 Production pointer, re-check before any deploy:
 
@@ -32,9 +32,9 @@ REA MCP checks: see `F:\projectAi\REA\README.md` (Cursor `user-rea`).
 
 ## Priorities
 
-1. **Do not deploy `607b41e`.** Production stays `dbe20a5`. A later release needs owner approval, then `AGENT_CORE_CF_ACCESS_TEAM_DOMAIN` and `AGENT_CORE_CF_ACCESS_AUD` before the symlink switch, or `/control` returns 503. The egress proxy is not installed. Rollback of that future release is `ln -sfn ~/agent-core/releases/dbe20a5 ~/agent-core/current` and a restart of `agent-core.service` only. See [../STATUS.md](../STATUS.md#security-closeout--2026-10-13).
-2. **Token rotation is OWNER-MANAGED / PENDING.** Do not read credentials. The owner runs `python3 ~/agent-core/ops/rotate-project-tokens.py --dry-run` first, then a real rotation only if they approve it, then re-does the `rae-attendance-v2` handoff.
-3. **PR #4 stays OPEN / CONFLICTING.** Do not rebase or close it. It overlaps PR #31 in four ops scripts; #31 is the newer git copy.
+1. **Do not deploy `c1411eb`.** Production stays `dbe20a5`. Gate: owner approval, then set `AGENT_CORE_CF_ACCESS_TEAM_DOMAIN` and `AGENT_CORE_CF_ACCESS_AUD` before the symlink switch, or `/control` returns 503. The egress proxy and a browser-MCP `--proxy-server` change are a separate approval. Rollback of that future release is `ln -sfn ~/agent-core/releases/dbe20a5 ~/agent-core/current` and a restart of `agent-core.service` only. See [../STATUS.md](../STATUS.md#security-closeout--2026-10-13) and [../SECURITY_HARDENING_2026-10.md](../SECURITY_HARDENING_2026-10.md).
+2. **Token rotation is OWNER-MANAGED / PENDING.** Do not read credentials. Gate: the owner runs `python3 ~/agent-core/ops/rotate-project-tokens.py --dry-run` first, then a real rotation only if they approve it, then re-does the `rae-attendance-v2` handoff.
+3. **PR #4 stays OPEN / CONFLICTING.** Do not rebase or close it. It overlaps PR #31 in four ops scripts; #31 is the newer git copy. REA activation on the VPS is also a separate approval (`REA_LOCAL_HANDOFF_ENABLED` stays false until then).
 4. **Phase-C knowledge WIP** — apply `git stash list` → `consolidation-preserve-wip-20261013-1743` onto a branch from current `main`.
 5. **Retire or archive** `docs/reality-reconciliation-20261013` after porting any unique docs (e.g. `POST_AUDIT_CLOSURE.md`).
 6. **Doc hygiene:** refresh `docs/rea/LOCAL_PREFLIGHT.md` post-install; keep `JEV_REA_ROUTING_V2.md` status aligned with `main`.
@@ -47,6 +47,7 @@ REA MCP checks: see `F:\projectAi\REA\README.md` (Cursor `user-rea`).
 
 ## Unresolved
 
-- Production is `dbe20a5` / `0.7.0` (8 capabilities, 6 projects, service rollback `01092e2`, MainPID `2891042`). `main` `607b41e` includes REA routing and the security/ops hardening. None of that is deployed. The morning audit's "SHA unknown" line is historical.
+- Production is `dbe20a5` / `0.7.0` (8 capabilities, 6 projects, service rollback `01092e2`, MainPID `2891042`). `main` `c1411eb` includes REA routing and the security/ops hardening (`607b41e` / `0b8eed9`). None of that is deployed. The morning audit's "SHA unknown" line is historical.
+- Local worktrees left in place: `agent-core` (untracked `package-lock.json` on `ops/production-activation`), `agent-core-j2c9b` (uncommitted edits on detached `dbe20a5`), `agent-core-audit` and `agent-core-ops` (merged branch tips). Do not delete them to "clean up" without a backup.
 - Dev-only `vitest` advisories (3) are recorded and not upgraded. Production dependency audit is 0.
 - Stale worktrees (`agent-core-main-sync` @ old main) — update or remove after backup.

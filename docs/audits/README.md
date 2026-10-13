@@ -16,3 +16,5 @@ Historical audits retain **original dates and SHAs**; do not rewrite point-in-ti
 **REA workspace operational truth:** `F:\projectAi\REA\PREFLIGHT_STATUS.md`, `README.md`, `out/*.json` (local only).
 
 **Integration how-to:** [../integrations/JEV_REA_LOCAL_INTEGRATION.md](../integrations/JEV_REA_LOCAL_INTEGRATION.md)
+
+**Session memory:** [../memory/README.md](../memory/README.md) · EOD 2026-10-13 → `main` @ `8e77ab5`

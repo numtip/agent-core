@@ -77,6 +77,7 @@ Use these terms in docs and runbooks:
 
 See:
 - [docs/STATUS.md](docs/STATUS.md) — authoritative platform matrix
+- [docs/memory/CURRENT_STATE.md](docs/memory/CURRENT_STATE.md) · [docs/memory/NEXT_SESSION.md](docs/memory/NEXT_SESSION.md) — project handoff
 - [docs/audits/AGENT_CORE_REALITY_AUDIT_20261013.md](docs/audits/AGENT_CORE_REALITY_AUDIT_20261013.md) — latest read-only audit
 - [BLUEPRINT.md](BLUEPRINT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [SECURITY.md](SECURITY.md)
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · [schemas/openapi.yaml](schemas/openapi.yaml)

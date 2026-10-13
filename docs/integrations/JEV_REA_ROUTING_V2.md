@@ -1,7 +1,7 @@
 # Jev × REA local routing — profile v2
 
-**Status:** `C_ROUTING_V2_READY` (pending PR review; not merged)  
-**Base:** `main` @ `93a4a36`  
+**Status:** merged on `main` (PR #26 @ `8e77ab5`)  
+**Base:** `main` @ `8e77ab5`  
 **Registry:** `mcp.rea` remains **PLANNED / HANDOFF** — Cursor executes `user-rea` tools only.
 
 ## Profiles

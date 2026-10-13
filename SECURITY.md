@@ -81,3 +81,14 @@ Hard policy > authorization > Jev recommendation > runtime action
 ```
 
 A Jev recommendation can never override a hard deny or required human approval.
+
+## Browser egress and control plane
+
+- Browser targets must resolve only to globally routable addresses (`src/net-guard.ts`); DNS
+  failure, private answers and unverifiable final URLs are denied.
+- The browser MCP should run behind the egress proxy (`src/egress-proxy.ts`), which pins the
+  checked IP so redirects, subresources and DNS rebinding cannot reach internal hosts.
+- `/control` and `/v1/control-metrics` require a verified Cloudflare Access assertion or a
+  `metrics`-scoped project token at the origin; misconfiguration fails closed.
+
+Details, evidence and the release checklist: `docs/SECURITY_HARDENING_2026-10.md`.

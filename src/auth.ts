@@ -28,8 +28,9 @@ export function authenticateProject(config: RuntimeConfig, request: FastifyReque
   const project = String(request.headers["x-agent-project"] ?? "");
   const token = String(request.headers["x-agent-project-token"] ?? "");
   if (!project || !token) return null;
-  const expected = config.projectKeys[project];
-  if (!expected || !safeEqual(token, expected)) return null;
+  // Own-property lookup: a header such as "constructor" must not resolve to Object.prototype.
+  const expected = Object.hasOwn(config.projectKeys, project) ? config.projectKeys[project] : undefined;
+  if (typeof expected !== "string" || !expected || !safeEqual(token, expected)) return null;
   return { project, scopes: resolveProjectScopes(config, project) };
 }
 

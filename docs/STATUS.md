@@ -2,8 +2,10 @@
 
 ## Current runtime line
 
-- **Repository version:** `0.7.0` (V2-9 Knowledge Fabric candidate); **deployed production runtime remains `0.6.0` until live activation/QA**
-- **Deployed release:** `~/agent-core/releases/4246c0a` (merged `main`: PR #14 + PR #15 + PR #16) on host `10.1.254.237`
+- **Repository version (`main`):** `0.7.0` — V2-9 Knowledge Fabric **IMPLEMENTED** (PR #17+); PR #19 **`rae-attendance-v2` onboarding IMPLEMENTED**
+- **Edge health (verified 2026-10-13):** public `/v1/health` returns **`version: 0.7.0`** — supersedes the earlier **0.6.0** string in V2-8 activation docs until VPS SHA is re-audited
+- **Last fully documented deploy / QA pack:** `~/agent-core/releases/4246c0a` on host `10.1.254.237` (V2-8 live QA, 2026-09-25) — **historical VERIFIED** baseline
+- **Deployed release SHA (live symlink):** **UNKNOWN** — SSH to `10.1.254.237` blocked during 2026-10-13 audit ([audit](audits/AGENT_CORE_REALITY_AUDIT_20261013.md))
 - **Architecture:** Agent Core v2 AI Control Plane
 - **v1 API compatibility:** preserved (verified live: `/v1/decision`, `/v1/route`, `/v1/qa`, `/v1/context`, `/v1/subagent`, `/v1/advanced-route`, `/v1/projects`, `/v1/metrics`, `/v1/control-metrics` all 200)
 - **V2-8 production activation:** executed, verified and reported —
@@ -34,7 +36,7 @@
 | Phase | Status | Notes |
 |---|---|---|
 | V2-0 Baseline Freeze | COMPLETE | v1 baseline kept for rollback (`releases/188de03`, `releases/9d2e9a9`) |
-| V2-1 Capability Registry + Unified Router | COMPLETE + LIVE | 7 capabilities, routing matrix verified live |
+| V2-1 Capability Registry + Unified Router | COMPLETE + LIVE | 8 capabilities on `main` (incl. `knowledge.openwiki`); routing verified live at V2-8 baseline |
 | V2-2 Gateway / Interceptor | COMPLETE + LIVE | progressive disclosure, execution contracts; nothing executes without policy |
 | V2-3 Context Governor | COMPLETE + LIVE | KEEP/COMPRESS/DROP/PIN live; protected context never dropped; reduction 0.40–0.51 |
 | V2-4 Browser Control Plane | COMPLETE + LIVE | policy pipeline live, plus **live MCP execution** behind scope/policy/guards/approval and the `PLAYWRIGHT_MCP_EXECUTION_ENABLED` kill switch |
@@ -42,7 +44,8 @@
 | V2-6 Control Center v2 | COMPLETE + LIVE | `/control` 200 internally, 302 behind Access externally, browser state shown as HANDOFF |
 | V2-7 Project migration | COMPLETE CONTRACTS | five adapters migrated; runtime scope/policy behaviour verified per project |
 | V2-8 Production activation + benchmark | COMPLETE | 112/112 QA cases, 54/54 benchmark samples, rollback + MCP-disable rehearsed, readiness `YES` |
-| V2-9 Knowledge Fabric / OpenWiki | CODE COMPLETE | read-only `knowledge.openwiki` capability, `/v2/knowledge/query`, evidence provenance + Context Governor; live OpenWiki transport remains activation-gated |
+| V2-9 Knowledge Fabric / OpenWiki | IMPLEMENTED · transport ACTIVATION-GATED | `/v2/knowledge/query`, provenance + Context Governor on `main`; live OpenWiki MCP not verified in this audit |
+| PR #19 `rae-attendance-v2` | IMPLEMENTED · ACTIVATION UNKNOWN | Adapter + least-privilege tests on `main`; production project token/scopes not verified (SSH blocked) |
 
 ## Project migration state (live behaviour verified)
 

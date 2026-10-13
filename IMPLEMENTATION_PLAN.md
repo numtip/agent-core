@@ -1,5 +1,9 @@
 # Technical Implementation Plan
 
+> **Note (2026-10-13):** Phases 0–8 and V2-0–V2-9 are **IMPLEMENTED** on `main` per [docs/STATUS.md](docs/STATUS.md).  
+> **DEPLOYED / ACTIVATED / VERIFIED** are tracked separately in STATUS and [docs/audits/](docs/audits/).  
+> This file retains historical phase boundaries; it is not the live production version source.
+
 ## Phase 0 — Architecture Foundation
 
 Deliverables:

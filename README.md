@@ -60,16 +60,26 @@ Project / Cursor / Codex / CLI
 9. Fallback is mandatory.
 10. One shared core; adapters per project.
 
-## Current phase
+## Platform status (verified labels)
 
-**Phase 0 — Architecture Foundation**
+Use these terms in docs and runbooks:
+
+| Label | Meaning |
+|-------|---------|
+| **IMPLEMENTED** | Merged on `main`, tests/CI green |
+| **DEPLOYED** | Built release on VPS (may lag `main`) |
+| **ACTIVATED** | Live credentials, scopes, and endpoints in use |
+| **VERIFIED** | Fresh QA or audit evidence for the claimed SHA/runtime |
+
+**Source (GitHub `main`):** implementation through **V2-9 Knowledge Fabric** (package `0.7.0` as of PR #19).  
+**Production:** edge health reported **`0.7.0`** on 2026-10-13 audit; last full live QA pack remains pinned to release **`4246c0a`** (see [docs/STATUS.md](docs/STATUS.md)).  
+**Not activated by default:** OpenWiki transport, `rae-attendance-v2` machine identity, observation/memory sync.
 
 See:
-- [BLUEPRINT.md](BLUEPRINT.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
-- [SECURITY.md](SECURITY.md)
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
-- [OpenAPI skeleton](schemas/openapi.yaml)
+- [docs/STATUS.md](docs/STATUS.md) — authoritative platform matrix
+- [docs/audits/AGENT_CORE_REALITY_AUDIT_20261013.md](docs/audits/AGENT_CORE_REALITY_AUDIT_20261013.md) — latest read-only audit
+- [BLUEPRINT.md](BLUEPRINT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [SECURITY.md](SECURITY.md)
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · [schemas/openapi.yaml](schemas/openapi.yaml)
 
 ## Initial project migration order
 

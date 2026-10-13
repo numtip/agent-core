@@ -97,6 +97,8 @@ export function buildApp(deps:AppDependencies={}) {
   app.post("/v1/subagent/complete",{preHandler:guard("route")},async(request,reply)=>{
     const parsed=z.object({key:z.string().min(1)}).safeParse(request.body);
     if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST"});
+    // dedupe keys are "<project>:<goal>"; a project may only complete its own subgoals.
+    if(request.projectIdentity && !parsed.data.key.startsWith(request.projectIdentity.project+":"))return reply.code(403).send({error:"PROJECT_MISMATCH"});
     subgoals.complete(parsed.data.key);
     return {completed:true,key:parsed.data.key};
   });
@@ -260,18 +262,20 @@ export function buildApp(deps:AppDependencies={}) {
       return reply.code(200).send({...plan,executed:false,reason:"HIGH_RISK_REQUIRES_APPROVAL"});
     }
 
+    // Reject an incomplete INPUT before any browser side effect (navigation) happens.
+    if(parsed.data.action==="BROWSER_INPUT" && !parsed.data.element_ref){
+      metrics.increment("browser_execution_incomplete");
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:"NEEDS_ELEMENT_REF",task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(200).send({...plan,executed:false,reason:"BROWSER_INPUT_REQUIRES_ELEMENT_REF",
+        execution:{enabled:true,endpoint:mcp.endpoint(),tool:null}});
+    }
+
     try{
       const navigation=await mcp.callTool("browser_navigate",{url:parsed.data.url},config.playwrightMcpTimeoutMs);
       let toolResult=navigation;
       let typed:null|{tool:string;input_chars:number}=null;
-      if(parsed.data.action==="BROWSER_INPUT"){
-        if(!parsed.data.element_ref){
-          metrics.increment("browser_execution_incomplete");
-          await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
-            action:parsed.data.action,result:"NEEDS_ELEMENT_REF",task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
-          return reply.code(200).send({...plan,executed:false,reason:"BROWSER_INPUT_REQUIRES_ELEMENT_REF",
-            execution:{enabled:true,endpoint:mcp.endpoint(),tool:"browser_navigate"}});
-        }
+      if(parsed.data.action==="BROWSER_INPUT" && parsed.data.element_ref){
         toolResult=await mcp.callTool("browser_type",{element:parsed.data.element_ref,text:parsed.data.input_text??"",ref:parsed.data.element_ref},config.playwrightMcpTimeoutMs);
         typed={tool:"browser_type",input_chars:(parsed.data.input_text??"").length};
       }

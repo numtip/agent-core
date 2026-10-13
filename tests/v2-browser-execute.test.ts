@@ -142,7 +142,7 @@ describe("V2 live browser execution", () => {
     const withoutRef = await post({ ...basePayload, action: "BROWSER_INPUT", input_text: "hello" });
     expect(withoutRef.response.json().executed).toBe(false);
     expect(withoutRef.response.json().reason).toBe("BROWSER_INPUT_REQUIRES_ELEMENT_REF");
-    expect(withoutRef.mcp.calls.map((c) => c.tool)).toEqual(["browser_navigate"]);
+    expect(withoutRef.mcp.calls).toHaveLength(0);
 
     const withRef = await post({ ...basePayload, action: "BROWSER_INPUT", input_text: "hello", element_ref: "e12" });
     expect(withRef.response.json().disposition).toBe("EXECUTED");

@@ -13,7 +13,8 @@ export type RuntimeConfig = {
 
 function numberFromEnv(name:string,fallback:number){ const raw=process.env[name]; if(!raw)return fallback; const v=Number(raw); if(!Number.isFinite(v))throw new Error(name+" must be a number"); return v; }
 function boolFromEnv(name:string,fallback:boolean){ const raw=process.env[name]; if(raw==null)return fallback; return ["1","true","yes","on"].includes(raw.toLowerCase()); }
-function jsonObject<T>(name:string,fallback:T):T { const raw=process.env[name]; if(!raw)return fallback; return JSON.parse(raw) as T; }
+// Never let the raw value reach the error/stack: these variables carry project tokens.
+function jsonObject<T>(name:string,fallback:T):T { const raw=process.env[name]; if(!raw)return fallback; try { return JSON.parse(raw) as T; } catch { throw new Error(name+" must be valid JSON (value withheld)"); } }
 
 export function loadConfig(): RuntimeConfig {
   const env=process.env.AGENT_CORE_ENV ?? "development";

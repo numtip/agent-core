@@ -38,7 +38,11 @@ function hostnameAllowed(hostname:string,allow:string[],deny:string[]) {
 function isPrivateIpv4(host:string){
   const parts=host.split(".").map(Number);
   if(parts.length!==4 || parts.some((n)=>Number.isNaN(n)))return false;
-  return parts[0]===10 || parts[0]===127 || (parts[0]===169&&parts[1]===254) || (parts[0]===172&&parts[1]>=16&&parts[1]<=31) || (parts[0]===192&&parts[1]===168);
+  const [a,b,c]=parts;
+  return a===0 || a===10 || a===127 || a>=224                // this-network, private, loopback, multicast/reserved
+    || (a===100&&b>=64&&b<=127)                                // CGNAT / Tailscale 100.64.0.0/10
+    || (a===169&&b===254) || (a===172&&b>=16&&b<=31) || (a===192&&b===168)
+    || (a===192&&b===0&&c===0) || (a===198&&(b===18||b===19)); // IETF assignments, benchmarking
 }
 
 function stripBrackets(host:string){ return host.startsWith("[")&&host.endsWith("]") ? host.slice(1,-1) : host; }
@@ -50,7 +54,7 @@ function isPrivateOrReservedIpv6(host:string){
   if(h==="::1" || h==="::" || h==="0:0:0:0:0:0:0:1")return true;
   const dotted=h.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
   if(dotted)return isPrivateIpv4(dotted[1]);
-  const hexMapped=h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  const hexMapped=h.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
   if(hexMapped){
     const hi=parseInt(hexMapped[1],16), lo=parseInt(hexMapped[2],16);
     return isPrivateIpv4(`${hi>>8}.${hi&255}.${lo>>8}.${lo&255}`);

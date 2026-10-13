@@ -1,6 +1,16 @@
 # Next session — resume guide
 
-**Start from:** `git fetch origin && git checkout main && git pull` (expect `8e77ab5` or newer).
+**Start from:** `git fetch origin && git checkout main && git pull` (this note was written at `93afa3e`; pull if `main` has moved).
+
+Production pointer, re-check before any deploy:
+
+```bash
+readlink -f ~/agent-core/current
+cat ~/agent-core/current/RELEASE_SHA
+curl -sS -m 3 http://127.0.0.1:8787/v1/health
+```
+
+Expected on 2026-10-13: `releases/dbe20a5`, SHA `dbe20a5543c07996aafc9f39ceb050007ce79842`, `"version":"0.7.0"`.
 
 ## Quick commands
 
@@ -32,5 +42,5 @@ REA MCP checks: see `F:\projectAi\REA\README.md` (Cursor `user-rea`).
 
 ## Unresolved
 
-- Production deployment unchanged; edge audit in `AGENT_CORE_REALITY_AUDIT_20261013.md` is point-in-time morning snapshot.
+- Production is `dbe20a5` (8 capabilities, 6 projects, rollback `01092e2`). Commits after that SHA, including REA routing, are not deployed. The morning audit's "SHA unknown" line is historical.
 - Stale worktrees (`agent-core-main-sync` @ old main) — update or remove after backup.

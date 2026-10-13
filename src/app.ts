@@ -20,6 +20,8 @@ import { createDefaultCapabilityRegistry } from "./capability-registry.js";
 import { unifiedRoute, unifiedRouteRequestSchema } from "./unified-router.js";
 import { capabilitySearchSchema, executeRequestSchema, interceptExecution, searchCapabilities, discloseCapability } from "./gateway.js";
 import { DisabledMcpClient, McpUnavailableError, newReceiptId, PlaywrightMcpClient, type McpPlaywrightClient } from "./mcp-playwright.js";
+import { reaLocalRouteRequestSchema } from "./rea-local/schemas.js";
+import { routeReaLocalHandoff } from "./rea-local/route.js";
 import { z } from "zod";
 
 export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger; mcp?:McpPlaywrightClient };
@@ -184,6 +186,19 @@ export function buildApp(deps:AppDependencies={}) {
     if(result.disposition==="CONTEXT_READY")metrics.increment("knowledge_context_ready");
     metrics.observeLatency(Date.now()-started);
     await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"KNOWLEDGE_QUERY",result:result.disposition,task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+    return result;
+  });
+
+  app.post("/v2/rea/route",{preHandler:guard("route")},async(request,reply)=>{
+    const parsed=reaLocalRouteRequestSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    const started=Date.now();
+    const result=await routeReaLocalHandoff({config,request:parsed.data,decisionService:service});
+    metrics.increment("rea_local_routes");
+    if(result.disposition==="ALLOW_HANDOFF")metrics.increment("rea_local_handoffs");
+    if(result.disposition==="DENY"||result.disposition==="HUMAN_REVIEW"||result.disposition==="FALLBACK")metrics.increment("rea_local_policy_blocks");
+    await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"REA_LOCAL_ROUTE",result:result.disposition,task_id:parsed.data.task_id,confidence:result.jev?.confidence,fallback:result.jev?.fallback??false,latency_ms:Date.now()-started,provider_request_id:result.jev?.provider_request_id??null});
     return result;
   });
 

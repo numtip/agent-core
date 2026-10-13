@@ -5,6 +5,9 @@ export type RuntimeConfig = {
   authRequired: boolean; projectKeys: Record<string,string>; projectScopes: Record<string,string[]>;
   rateLimitMax: number; rateLimitWindowMs: number; auditLogPath: string | null;
   playwrightMcpExecutionEnabled: boolean; playwrightMcpEndpoint: string; playwrightMcpTimeoutMs: number;
+  reaLocalHandoffEnabled?: boolean;
+  reaWorkspaceRoots?: string[];
+  reaPackageVersion?: string;
 };
 
 function numberFromEnv(name:string,fallback:number){ const raw=process.env[name]; if(!raw)return fallback; const v=Number(raw); if(!Number.isFinite(v))throw new Error(name+" must be a number"); return v; }
@@ -32,6 +35,9 @@ export function loadConfig(): RuntimeConfig {
     // Browser execution kill switch: live MCP execution stays off unless explicitly enabled.
     playwrightMcpExecutionEnabled:boolFromEnv("PLAYWRIGHT_MCP_EXECUTION_ENABLED",false),
     playwrightMcpEndpoint:process.env.PLAYWRIGHT_MCP_ENDPOINT ?? "http://127.0.0.1:8791/mcp",
-    playwrightMcpTimeoutMs:numberFromEnv("PLAYWRIGHT_MCP_TIMEOUT_MS",20000)
+    playwrightMcpTimeoutMs:numberFromEnv("PLAYWRIGHT_MCP_TIMEOUT_MS",20000),
+    reaLocalHandoffEnabled:boolFromEnv("REA_LOCAL_HANDOFF_ENABLED",false),
+    reaWorkspaceRoots:jsonObject<string[]>("REA_WORKSPACE_ROOTS",[]),
+    reaPackageVersion:process.env.REA_PACKAGE_VERSION ?? "6.4.0"
   };
 }

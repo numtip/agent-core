@@ -19,12 +19,26 @@ import { SubgoalRegistry } from "./subgoal-registry.js";
 import { createDefaultCapabilityRegistry } from "./capability-registry.js";
 import { unifiedRoute, unifiedRouteRequestSchema } from "./unified-router.js";
 import { capabilitySearchSchema, executeRequestSchema, interceptExecution, searchCapabilities, discloseCapability } from "./gateway.js";
-import { DisabledMcpClient, McpUnavailableError, newReceiptId, PlaywrightMcpClient, type McpPlaywrightClient } from "./mcp-playwright.js";
+import { DisabledMcpClient, McpUnavailableError, newReceiptId, parsePageUrl, PlaywrightMcpClient, type McpPlaywrightClient, type McpSession } from "./mcp-playwright.js";
+import { hostnameAllowed, isUnsafeHost } from "./browser-control.js";
+import { checkHost, systemLookup, type LookupAll } from "./net-guard.js";
+import { CfAccessVerifier } from "./control-auth.js";
+import type { Writable } from "node:stream";
 import { reaLocalRouteRequestSchema } from "./rea-local/schemas.js";
 import { routeReaLocalHandoff } from "./rea-local/route.js";
 import { z } from "zod";
 
-export type AppDependencies = { config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger; mcp?:McpPlaywrightClient };
+export type AppDependencies = {
+  config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger; mcp?:McpPlaywrightClient;
+  lookup?:LookupAll; jwksFetch?:typeof fetch; logStream?:Writable;
+};
+
+// Credentials must never reach logs even if a serializer starts including headers.
+const REDACTED_HEADERS=["authorization","cookie","x-agent-project-token","cf-access-jwt-assertion","cf-access-client-secret","cf-access-client-id"];
+
+function safeHost(raw:string):string|null{
+  try{ return new URL(raw).host; }catch{ return null; }
+}
 
 export function buildApp(deps:AppDependencies={}) {
   const config=deps.config ?? loadConfig();
@@ -33,7 +47,11 @@ export function buildApp(deps:AppDependencies={}) {
   const metrics=deps.metrics ?? new Metrics();
   const audit=deps.audit ?? new AuditLogger(config.auditLogPath);
   const limiter=new RateLimiter(config.rateLimitMax,config.rateLimitWindowMs);
-  const app=Fastify({logger:true});
+  const lookup=deps.lookup ?? systemLookup;
+  const app=Fastify({logger:{
+    redact:{paths:REDACTED_HEADERS.flatMap((h)=>[`req.headers["${h}"]`,`headers["${h}"]`]),censor:"[REDACTED]"},
+    ...(deps.logStream?{stream:deps.logStream}:{})
+  }});
   const subgoals=new SubgoalRegistry();
   const capabilities=createDefaultCapabilityRegistry();
   const mcp:McpPlaywrightClient=deps.mcp ?? new PlaywrightMcpClient({
@@ -51,6 +69,29 @@ export function buildApp(deps:AppDependencies={}) {
       if(!hasScope(identity,scope))return reply.code(403).send({error:"FORBIDDEN",scope});
       if(!limiter.allow(identity.project+":"+scope)){ metrics.increment("rate_limited"); return reply.code(429).send({error:"RATE_LIMITED"}); }
     };
+  }
+
+  // Control plane: a project identity with `metrics` scope (machine clients) or, in cf-access
+  // mode, a verified Cloudflare Access assertion. Misconfiguration fails closed (503).
+  const controlMode=config.controlAuthMode ?? "cf-access";
+  let cfVerifier:CfAccessVerifier|null=null;
+  if(config.authRequired && controlMode==="cf-access" && config.cfAccessTeamDomain && config.cfAccessAudiences?.length){
+    cfVerifier=new CfAccessVerifier({teamDomain:config.cfAccessTeamDomain,audiences:config.cfAccessAudiences,fetchImpl:deps.jwksFetch});
+  }
+  async function controlGuard(request:FastifyRequest,reply:FastifyReply){
+    if(!config.authRequired)return;
+    if(request.headers["x-agent-project"]!==undefined || request.headers["x-agent-project-token"]!==undefined){
+      const identity=authenticateProject(config,request);
+      if(!identity)return reply.code(401).send({error:"UNAUTHORIZED"});
+      if(!hasScope(identity,"metrics"))return reply.code(403).send({error:"FORBIDDEN",scope:"metrics"});
+      request.projectIdentity=identity;
+      return;
+    }
+    if(controlMode!=="cf-access")return reply.code(401).send({error:"UNAUTHORIZED"});
+    if(!cfVerifier){ metrics.increment("control_auth_unconfigured"); return reply.code(503).send({error:"CONTROL_AUTH_NOT_CONFIGURED"}); }
+    const raw=request.headers["cf-access-jwt-assertion"];
+    const check=await cfVerifier.verify(typeof raw==="string"?raw:undefined);
+    if(!check.valid){ metrics.increment("control_auth_denied"); return reply.code(401).send({error:"UNAUTHORIZED",reason:check.reason}); }
   }
 
   app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.7.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
@@ -271,15 +312,53 @@ export function buildApp(deps:AppDependencies={}) {
         execution:{enabled:true,endpoint:mcp.endpoint(),tool:null}});
     }
 
+    // DNS guard: every resolved address must be public before the browser is told to go there.
+    const blockedTarget=async(rawUrl:string):Promise<string|null>=>{
+      let target:URL;
+      try{ target=new URL(rawUrl); }catch{ return "FINAL_URL_UNPARSEABLE"; }
+      if(!["http:","https:"].includes(target.protocol))return "UNSUPPORTED_URL_SCHEME";
+      if(isUnsafeHost(target.hostname))return "PRIVATE_OR_LOCAL_HOST_BLOCKED";
+      if(!hostnameAllowed(target.hostname,parsed.data.allow_domains,parsed.data.deny_domains))return "DOMAIN_POLICY_BLOCK";
+      const dns=await checkHost(target.hostname,lookup);
+      return dns.ok ? null : dns.reason;
+    };
+    const deny=async(reason:string,extra:Record<string,unknown>={},metric="browser_ssrf_blocks")=>{
+      metrics.increment(metric);
+      await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,
+        action:parsed.data.action,result:reason,task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
+      return reply.code(200).send({disposition:"DENY",reason,executed:false,...extra});
+    };
+    const preReason=await blockedTarget(parsed.data.url);
+    if(preReason)return deny(preReason);
+
+    let session:McpSession|null=null;
     try{
-      const navigation=await mcp.callTool("browser_navigate",{url:parsed.data.url},config.playwrightMcpTimeoutMs);
+      session=await mcp.openSession(config.playwrightMcpTimeoutMs);
+      const navigation=await session.call("browser_navigate",{url:parsed.data.url});
       let toolResult=navigation;
       let typed:null|{tool:string;input_chars:number}=null;
-      if(parsed.data.action==="BROWSER_INPUT" && parsed.data.element_ref){
-        toolResult=await mcp.callTool("browser_type",{element:parsed.data.element_ref,text:parsed.data.input_text??"",ref:parsed.data.element_ref},config.playwrightMcpTimeoutMs);
-        typed={tool:"browser_type",input_chars:(parsed.data.input_text??"").length};
+      if(!navigation.isError){
+        // Redirects / rebinding: the page we landed on must pass the same guard as the request.
+        const finalUrl=parsePageUrl(navigation.text);
+        const postReason=finalUrl ? await blockedTarget(finalUrl) : "FINAL_URL_UNVERIFIED";
+        if(postReason){
+          await session.call("browser_navigate",{url:"about:blank"}).catch(()=>undefined);
+          return deny(postReason,{navigated:true,final_host:finalUrl?safeHost(finalUrl):null});
+        }
+        // Same session => same isolated context; refs are resolved against this verified page.
+        const snapshot=await session.call("browser_snapshot",{});
+        if(parsed.data.action==="BROWSER_INPUT" && parsed.data.element_ref){
+          if(snapshot.isError || !snapshot.text.includes(`[ref=${parsed.data.element_ref}]`)){
+            return deny("ELEMENT_REF_NOT_FOUND",{navigated:true},"browser_execution_incomplete");
+          }
+          // `target` is the current MCP argument name, `ref` the pre-2026 one.
+          toolResult=await session.call("browser_type",{element:parsed.data.element_ref,target:parsed.data.element_ref,ref:parsed.data.element_ref,text:parsed.data.input_text??""});
+          typed={tool:"browser_type",input_chars:(parsed.data.input_text??"").length};
+        }else if(!snapshot.isError){
+          toolResult={...snapshot,tool:"browser_snapshot"};
+        }
       }
-      metrics.increment("browser_executions");
+      metrics.increment(toolResult.isError?"browser_execution_failures":"browser_executions");
       metrics.observeLatency(Date.now()-started);
       const receipt={
         receipt_id:newReceiptId(),
@@ -292,8 +371,8 @@ export function buildApp(deps:AppDependencies={}) {
         action:parsed.data.action,result:toolResult.isError?"MCP_TOOL_ERROR":"MCP_EXECUTED",
         task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
       return reply.code(200).send({
-        disposition:"EXECUTED",
-        executed:true,
+        disposition:toolResult.isError?"TOOL_ERROR":"EXECUTED",
+        executed:!toolResult.isError,
         plan:{policy:plan.policy,injection:plan.injection,risk:plan.risk},
         receipt,
         result:{tool:toolResult.tool,is_error:toolResult.isError,text:toolResult.text.slice(0,4000),typed}
@@ -311,13 +390,15 @@ export function buildApp(deps:AppDependencies={}) {
         plan:{policy:plan.policy,injection:plan.injection,risk:plan.risk},
         execution:{enabled:true,endpoint:mcp.endpoint(),tool:"browser_navigate"}
       });
+    }finally{
+      await session?.close();
     }
   });
 
   app.get("/v1/projects",{preHandler:guard("metrics")},async()=>({projects:listProjects()}));
   app.get("/v1/metrics",{preHandler:guard("metrics")},async()=>metrics.snapshot());
-  app.get("/v1/control-metrics",async()=>metrics.snapshot());
-  app.get("/control",async(_request,reply)=>reply.type("text/html; charset=utf-8").send(dashboardHtml()));
+  app.get("/v1/control-metrics",{preHandler:controlGuard},async()=>metrics.snapshot());
+  app.get("/control",{preHandler:controlGuard},async(_request,reply)=>reply.type("text/html; charset=utf-8").send(dashboardHtml()));
 
   return app;
 }

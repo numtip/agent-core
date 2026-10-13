@@ -16,7 +16,9 @@
     "start": "node dist/src/server.js",
     "cli": "tsx src/cli.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "egress-proxy": "node dist/src/egress-proxy-server.js",
+    "qa:browser-hardening": "node ops/v2-browser-hardening-qa.mjs"
   },
   "dependencies": {
     "fastify": "^5.0.0",

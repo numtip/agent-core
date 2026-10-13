@@ -1,0 +1,16 @@
+{"case":"S1-split-sessions-cannot-type","status":"PASS","observed":"type in a fresh session isError=true (ref from earlier session=e3)","timestamp":"2026-10-13T15:59:38.273Z"}
+{"case":"S2-single-session-navigate-type","status":"PASS","observed":"ref=e3 typeError=false valueSeen=true","timestamp":"2026-10-13T15:59:39.529Z"}
+{"case":"S3-closed-session-is-gone","status":"PASS","observed":"reuse of closed session id -> HTTP 404","timestamp":"2026-10-13T15:59:39.534Z"}
+{"case":"S4-sessions-isolated","status":"PASS","observed":"session B sees: none|","timestamp":"2026-10-13T15:59:41.500Z"}
+{"case":"E1-public-via-proxy","status":"PASS","observed":"isError=false Page URL: https://example.com/","timestamp":"2026-10-13T15:59:42.636Z"}
+{"case":"E2-private-http","status":"PASS","observed":"proxyDenied=true isError=true","timestamp":"2026-10-13T15:59:43.213Z"}
+{"case":"E3-metadata-https","status":"PASS","observed":"proxyDenied=true isError=true","timestamp":"2026-10-13T15:59:43.836Z"}
+{"case":"E4-loopback-not-bypassed","status":"PASS","observed":"proxyDenied=true isError=true","timestamp":"2026-10-13T15:59:44.497Z"}
+{"case":"E5-subresource-fetch-blocked","status":"PASS","observed":"page script fetch -> blocked proxyDenied=true","timestamp":"2026-10-13T15:59:46.495Z"}
+{"case":"A1-app-read-public","status":"PASS","observed":"HTTP 200 EXECUTED","timestamp":"2026-10-13T15:59:47.989Z"}
+{"case":"A2-app-private-literal","status":"PASS","observed":"HTTP 200 DENY PRIVATE_OR_LOCAL_HOST_BLOCKED","timestamp":"2026-10-13T15:59:47.994Z"}
+{"case":"A3-app-redirect-to-metadata","status":"PASS","observed":"HTTP 200 TOOL_ERROR  executed=false proxyDenied=true","timestamp":"2026-10-13T15:59:49.595Z"}
+{"case":"A6-app-input-public","status":"PASS","observed":"ref=e5 EXECUTED is_error=false","timestamp":"2026-10-13T15:59:53.215Z"}
+{"case":"A7-app-input-unknown-ref","status":"PASS","observed":"DENY ELEMENT_REF_NOT_FOUND","timestamp":"2026-10-13T15:59:54.993Z"}
+{"case":"A4-control-origin-auth","status":"PASS","observed":"/control no creds (no Access config) -> 503; metrics token -> 200","timestamp":"2026-10-13T15:59:54.997Z"}
+{"case":"A5-no-token-in-app-log","status":"PASS","observed":"app log bytes=3682 token_present=false","timestamp":"2026-10-13T15:59:55.297Z"}

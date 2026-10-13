@@ -1,0 +1,23 @@
+[Unit]
+Description=Agent Core browser egress proxy (public-only, pinned DNS)
+After=network-online.target
+Wants=network-online.target
+Before=agent-core-browser-mcp.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agent-core/current
+Environment=EGRESS_PROXY_HOST=127.0.0.1
+Environment=EGRESS_PROXY_PORT=8792
+ExecStart=/usr/bin/node /opt/agent-core/current/dist/src/egress-proxy-server.js
+Restart=on-failure
+RestartSec=5
+User=agentcore
+Group=agentcore
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

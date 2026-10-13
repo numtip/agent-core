@@ -2,14 +2,14 @@
 
 ## Current runtime line
 
-Verified on VPS `ubantu24` (`10.1.254.237`) at 2026-10-13 23:16 +07 by reading the live user unit. No restart and no deploy were part of that check. Closeout status: **SECURITY_SOURCE_MERGED — PRODUCTION_PENDING**. The morning audit that still says the live SHA is unknown is historical: [audits/AGENT_CORE_REALITY_AUDIT_20261013.md](audits/AGENT_CORE_REALITY_AUDIT_20261013.md).
+Verified on VPS `ubantu24` (`10.1.254.237`) at 2026-10-13 23:16 +07 by reading the live user unit, and re-read at 23:23 +07 (same symlink, same MainPID, health still `0.7.0`). No restart and no deploy were part of either check. Closeout status: **SECURITY_SOURCE_MERGED — PRODUCTION_PENDING**. Documentation closeout: **CLOSEOUT_DOCUMENTED** at `c1411eb` (PR #32). The morning audit that still says the live SHA is unknown is historical: [audits/AGENT_CORE_REALITY_AUDIT_20261013.md](audits/AGENT_CORE_REALITY_AUDIT_20261013.md).
 
 - **Deployed package:** `0.7.0`. Loopback `GET http://127.0.0.1:8787/v1/health` returned `status: ok`, `version: 0.7.0`, `auth_required: true`, `provider_configured: true`, model `~typesafe/jev-latest`.
 - **Deployed release:** `~/agent-core/releases/dbe20a5` (`dbe20a5543c07996aafc9f39ceb050007ce79842`). `current` resolves to that directory. `agent-core.service` MainPID `2891042`, active since 2026-10-12 13:03:42 +07 (user-space systemd, Node v22.22.2). `agent-core-browser-mcp.service` MainPID `3563237`, active. Ten release directories are still on disk.
 - **Rollback release:** `~/agent-core/releases/01092e2` (parent of the deployed commit). v1 baselines `releases/188de03` and `releases/9d2e9a9` are still on disk and are not the current symlink.
 - **Production capabilities (8):** `deterministic.runtime`, `model.frontier`, `agent.cursor`, `agent.codex`, `agent.hermes`, `tool.git`, `mcp.playwright`, `knowledge.openwiki`. Counted in the deployed `dist/src/capability-registry.js`.
 - **Production project identities (6):** `52clips`, `attendance-report-generator`, `handbook`, `goffice2026`, `dbplant`, `rae-attendance-v2`. `rae-attendance-v2` is activated with scope `decision` only. Tokens are not recorded in this file.
-- **GitHub `main` is not this release.** At this closeout `main` is `607b41e230a25a99c3481702a4260738b8d354af` ([PR #31](https://github.com/numtip/agent-core/pull/31)), eleven commits after `dbe20a5`. Those commits are **not deployed**. Source on `main` registers **11** capabilities and a seventh profile, `agent-core`, adds `POST /v2/rea/route`, and contains the security and ops hardening below. See [Security closeout](#security-closeout--2026-10-13) and [Undeployed commits](#undeployed-commits-on-main).
+- **GitHub `main` is not this release.** At session close `main` is `c1411ebbee6a6633fbf8e7a5a8136bed6e9921f5` ([PR #32](https://github.com/numtip/agent-core/pull/32), docs only). The last runtime commit is `607b41e` ([PR #31](https://github.com/numtip/agent-core/pull/31)). Neither is deployed. Source on `main` registers **11** capabilities and a seventh profile, `agent-core`, adds `POST /v2/rea/route`, and contains the security and ops hardening below. See [Security closeout](#security-closeout--2026-10-13) and [Undeployed commits](#undeployed-commits-on-main).
 - **Architecture:** Agent Core v2 AI Control Plane.
 - **v1 API compatibility:** preserved on the V2-8 baseline (historical live check of `/v1/decision`, `/v1/route`, `/v1/qa`, `/v1/context`, `/v1/subagent`, `/v1/advanced-route`, `/v1/projects`, `/v1/metrics`, `/v1/control-metrics`). This 2026-10-13 VPS pass re-checked `/v1/health` only.
 - **Historical V2-8 pack:** `~/agent-core/releases/4246c0a` on 2026-09-25 remains the last full 112/112 QA and benchmark record. It is not the running release.
@@ -30,9 +30,10 @@ Verified on VPS `ubantu24` (`10.1.254.237`) at 2026-10-13 23:16 +07 by reading t
 
 | Item | State |
 |---|---|
-| `main` HEAD | `607b41e230a25a99c3481702a4260738b8d354af` |
-| [PR #30](https://github.com/numtip/agent-core/pull/30) | MERGED, squash `0b8eed9738df7497b84464f8e04022d506cd0c5a` |
-| [PR #31](https://github.com/numtip/agent-core/pull/31) | MERGED, squash `607b41e230a25a99c3481702a4260738b8d354af` |
+| `main` HEAD | `c1411ebbee6a6633fbf8e7a5a8136bed6e9921f5` (docs). Last runtime commit `607b41e` |
+| [PR #30](https://github.com/numtip/agent-core/pull/30) | MERGED, squash `0b8eed9738df7497b84464f8e04022d506cd0c5a`. Not deployed |
+| [PR #31](https://github.com/numtip/agent-core/pull/31) | MERGED, squash `607b41e230a25a99c3481702a4260738b8d354af`. Not deployed |
+| [PR #32](https://github.com/numtip/agent-core/pull/32) | MERGED, squash `c1411eb`. Docs only |
 | [PR #4](https://github.com/numtip/agent-core/pull/4) | **OPEN / CONFLICTING / DIRTY**. Not rebased. Not closed |
 
 Completed in git, and absent from the running `dbe20a5` binary:
@@ -184,7 +185,7 @@ Checked in the deployed tree or the live unit on 2026-10-13 unless noted.
 
 ## Undeployed commits on main
 
-`origin/main` at `607b41e` contains runtime that the VPS is not running. Do not treat these as production. The previous checkpoint in this file was `93afa3e` (PR #28).
+`origin/main` at `c1411eb` contains runtime that the VPS is not running. The tip itself is docs (PR #32). Do not treat these as production. The previous checkpoint in this file was `607b41e` (PR #31).
 
 | Commits | What landed in git | If it were deployed |
 |---|---|---|
@@ -194,6 +195,7 @@ Checked in the deployed tree or the live unit on 2026-10-13 unless noted.
 | `#20` `#25` `#27` `#28` `#29` `e876511` | Audits, memory, and the previous production-pointer docs | No runtime change |
 | `#30` `0b8eed9` | Fail-closed SSRF, one MCP session for browser input, origin auth for `/control` | Not deployed. Needs the Access env vars in [Security closeout](#security-closeout--2026-10-13) or `/control` returns 503 |
 | `#31` `607b41e` | Hardened operator scripts and synthetic-credential tests | Not deployed. Host `~/agent-core/ops/` was not replaced |
+| `#32` `c1411eb` | This status file and the memory notes at that time | No runtime change |
 
 None of these commits change the Jev client timeout or add a retry. The deployed client remains a single 8000 ms attempt.
 

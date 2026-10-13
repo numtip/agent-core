@@ -1,0 +1,10 @@
+{
+  "scripts": [
+    {
+      "url": "https://example.test/app.js",
+      "path": "app.js",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 128
+    }
+  ]
+}

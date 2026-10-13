@@ -7,6 +7,7 @@ export function testRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     reaLocalHandoffEnabled: false,
     reaWorkspaceRoots: [],
     reaPackageVersion: "6.4.0",
+    reaAllowlistProfile: "v1",
     ...config
   };
 }

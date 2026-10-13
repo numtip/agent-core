@@ -8,6 +8,7 @@ export type RuntimeConfig = {
   reaLocalHandoffEnabled?: boolean;
   reaWorkspaceRoots?: string[];
   reaPackageVersion?: string;
+  reaAllowlistProfile?: "v1" | "v2";
 };
 
 function numberFromEnv(name:string,fallback:number){ const raw=process.env[name]; if(!raw)return fallback; const v=Number(raw); if(!Number.isFinite(v))throw new Error(name+" must be a number"); return v; }
@@ -38,6 +39,7 @@ export function loadConfig(): RuntimeConfig {
     playwrightMcpTimeoutMs:numberFromEnv("PLAYWRIGHT_MCP_TIMEOUT_MS",20000),
     reaLocalHandoffEnabled:boolFromEnv("REA_LOCAL_HANDOFF_ENABLED",false),
     reaWorkspaceRoots:jsonObject<string[]>("REA_WORKSPACE_ROOTS",[]),
-    reaPackageVersion:process.env.REA_PACKAGE_VERSION ?? "6.4.0"
+    reaPackageVersion:process.env.REA_PACKAGE_VERSION ?? "6.4.0",
+    reaAllowlistProfile:(process.env.REA_ALLOWLIST_PROFILE === "v2" ? "v2" : "v1")
   };
 }

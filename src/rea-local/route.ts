@@ -3,13 +3,10 @@ import { detectPromptInjection } from "../browser-control.js";
 import { evaluateHardPolicy } from "../policy.js";
 import type { DecisionRequest, DecisionResponse } from "../schemas.js";
 import type { DecisionService } from "../services/decision.js";
-import {
-  getAllowlistedTool,
-  REA_LOCAL_ALLOWLIST,
-  REA_LOCAL_ALLOWLIST_IDS,
-  type ReaAllowlistedTool
-} from "./allowlist.js";
-import { canonicalPathWithinRoots, isUnderSyntheticSample } from "./path-guard.js";
+import { getAllowlistedTool, type ReaAllowlistedTool } from "./allowlist.js";
+import { getActiveAllowlistIds } from "./allowlist-profiles.js";
+import { validateToolArguments } from "./arg-validation.js";
+import { deterministicEligibleTools } from "./eligible-tools.js";
 import type { ReaLocalRouteRequest, ReaRouteDisposition } from "./schemas.js";
 
 export type ReaLocalRouteResult = {
@@ -45,58 +42,9 @@ function newReceiptId(): string {
   return `rea_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function validateToolArguments(
-  tool: ReaAllowlistedTool,
-  raw: Record<string, unknown>,
-  workspaceRoots: string[]
-): { ok: true; args: Record<string, unknown> } | { ok: false; reason: string } {
-  if (!REA_LOCAL_ALLOWLIST_IDS.has(tool.id)) {
-    return { ok: false, reason: "TOOL_NOT_ALLOWLISTED" };
-  }
-
-  const parsed = tool.argumentsSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { ok: false, reason: "TOOL_ARGUMENTS_INVALID" };
-  }
-
-  if (tool.id === "analyze_javascript_application") {
-    const inputPath = String((parsed.data as { input_path: string }).input_path);
-    const pathCheck = canonicalPathWithinRoots(inputPath, workspaceRoots);
-    if (!pathCheck.ok) return { ok: false, reason: pathCheck.reason };
-    const root = workspaceRoots[0];
-    if (tool.syntheticSampleOnly && root && !isUnderSyntheticSample(pathCheck.canonicalPath, root)) {
-      return { ok: false, reason: "SYNTHETIC_SAMPLE_PATH_REQUIRED" };
-    }
-    const data = parsed.data as Record<string, unknown>;
-    return {
-      ok: true,
-      args: { ...data, input_path: pathCheck.canonicalPath }
-    };
-  }
-
-  return { ok: true, args: parsed.data as Record<string, unknown> };
-}
-
-function deterministicEligibleTools(request: ReaLocalRouteRequest): string[] {
-  const hint = request.tool_hint?.trim();
-  if (hint) {
-    return REA_LOCAL_ALLOWLIST_IDS.has(hint) ? [hint] : [];
-  }
-
-  const args = request.tool_arguments;
-  if (typeof args.input_path === "string" && args.input_path.length > 0) {
-    return ["analyze_javascript_application"];
-  }
-
-  const task = request.task.toLowerCase();
-  if (task.includes("session") || task.includes("metadata") || task.includes("binary_session")) {
-    return ["binary_session"];
-  }
-
-  if (task.includes("javascript") || task.includes("synthetic") || task.includes("analyze")) {
-    return ["analyze_javascript_application"];
-  }
-
+function policyTargets(args: Record<string, unknown>): string[] {
+  if (typeof args.input_path === "string") return [args.input_path];
+  if (typeof args.manifest_path === "string") return [args.manifest_path];
   return [];
 }
 
@@ -141,6 +89,8 @@ export async function routeReaLocalHandoff(input: {
 }): Promise<ReaLocalRouteResult> {
   const { config, request, decisionService } = input;
   const workspaceRoots = config.reaWorkspaceRoots ?? [];
+  const allowlistProfile = config.reaAllowlistProfile ?? "v1";
+  const activeAllowlistIds = getActiveAllowlistIds(allowlistProfile);
   const injection = detectPromptInjection(
     [request.task, request.untrusted_evidence ?? ""].filter(Boolean).join("\n")
   );
@@ -208,7 +158,7 @@ export async function routeReaLocalHandoff(input: {
     };
   }
 
-  if (request.tool_hint && !REA_LOCAL_ALLOWLIST_IDS.has(request.tool_hint)) {
+  if (request.tool_hint && !activeAllowlistIds.has(request.tool_hint)) {
     return {
       schema_version: 2,
       disposition: "DENY",
@@ -227,7 +177,7 @@ export async function routeReaLocalHandoff(input: {
     };
   }
 
-  const eligibleIds = deterministicEligibleTools(request);
+  const eligibleIds = deterministicEligibleTools(request, allowlistProfile);
   const eligibleTools = eligibleIds
     .map((id) => getAllowlistedTool(id))
     .filter((t): t is ReaAllowlistedTool => Boolean(t));
@@ -301,7 +251,7 @@ export async function routeReaLocalHandoff(input: {
     };
   }
 
-  if (!REA_LOCAL_ALLOWLIST_IDS.has(jev.result)) {
+  if (!activeAllowlistIds.has(jev.result)) {
     return {
       schema_version: 2,
       disposition: "DENY",
@@ -360,10 +310,7 @@ export async function routeReaLocalHandoff(input: {
     };
   }
 
-  const targets =
-    selected.id === "analyze_javascript_application"
-      ? [String(argValidation.args.input_path)]
-      : [];
+  const targets = policyTargets(argValidation.args);
 
   const hardPolicy = evaluateHardPolicy({
     project: request.project,

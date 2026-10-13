@@ -11,6 +11,7 @@ Historical audits retain **original dates and SHAs**; do not rewrite point-in-ti
 | [REA_SECURITY_PREFLIGHT.md](./REA_SECURITY_PREFLIGHT.md) | Evidence | **Pre-install snapshot** (before REA MCP activation) |
 | [REA_TOOL_RISK_CLASSIFICATION.md](./REA_TOOL_RISK_CLASSIFICATION.md) | Classification | REA MCP catalog via `binary_session` metadata |
 | [AGENT_CORE_REALITY_AUDIT_20261013.md](./AGENT_CORE_REALITY_AUDIT_20261013.md) | Reality audit | On `main`; Gate B drift |
+| [REVERSE_SKILL_GAP_AUDIT_20261013.md](./REVERSE_SKILL_GAP_AUDIT_20261013.md) | Gap audit | reverse-skill `1.0.1` @ `cab634bd`; **0 adopted**; runtime unchanged |
 | [JEV_REA_INTEGRATION_QA.md](./JEV_REA_INTEGRATION_QA.md) | QA index | On `main` |
 
 **REA workspace operational truth:** `F:\projectAi\REA\PREFLIGHT_STATUS.md`, `README.md`, `out/*.json` (local only).

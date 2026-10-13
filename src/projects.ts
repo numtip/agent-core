@@ -5,7 +5,8 @@ const registry: ProjectProfile[] = [
   { id:"handbook", type:"content-publication", risk:"standard", defaultScopes:["decision","route","qa","context"], notes:"Document classification, metadata and publication readiness." },
   { id:"goffice2026", type:"web-application", risk:"standard", defaultScopes:["decision","route","qa","context","metrics"], notes:"Web/data/content workflows. Production deployment remains human-approved." },
   { id:"dbplant", type:"database-production", risk:"high", defaultScopes:["decision","context"], notes:"Read-only by default. Database writes require separately approved policy." },
-  { id:"rae-attendance-v2", type:"web-application", risk:"high", defaultScopes:["decision"], notes:"Attendance SPA/API, SSO, and employee identifiers. Agent assists planning and review only; production deploy, SSO activation, and database writes remain human-approved." }
+  { id:"rae-attendance-v2", type:"web-application", risk:"high", defaultScopes:["decision"], notes:"Attendance SPA/API, SSO, and employee identifiers. Agent assists planning and review only; production deploy, SSO activation, and database writes remain human-approved." },
+  { id:"agent-core", type:"control-plane", risk:"standard", defaultScopes:["decision","route","qa","context","metrics"], notes:"This repository. Knowledge handoffs are client-side; browser MCP off unless scope granted." }
 ];
 export function listProjects(){ return registry; }
 export function findProject(id:string){ return registry.find((p)=>p.id===id); }

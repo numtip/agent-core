@@ -149,6 +149,48 @@ const defaultCapabilities: Capability[] = [
       context_governor_required: true,
       source_verification_required_before_execution: true
     }
+  },
+  {
+    id: "knowledge.observation",
+    kind: "WORKFLOW",
+    description: "Read-only observation retrieval from filtered Claude-Mem or similar exports stored in a GitHub repository.",
+    tags: ["knowledge", "observation", "memory", "claude-mem", "context", "github"],
+    operations: ["READ"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 82,
+    metadata: {
+      phase: "V2-9",
+      execution_mode: "HANDOFF",
+      transport: "PROJECT_CLIENT",
+      authority: "CONTEXT_ONLY",
+      read_only: true,
+      context_governor_required: true,
+      source_verification_required_before_execution: true,
+      client_fetch: "github_observation_export"
+    }
+  },
+  {
+    id: "knowledge.memory-store",
+    kind: "WORKFLOW",
+    description: "Read-only project memory store (Hermes export, .ai/memory snapshots, or private GitHub memory repo).",
+    tags: ["knowledge", "memory", "hermes", "sync", "context", "github"],
+    operations: ["READ"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 81,
+    metadata: {
+      phase: "V2-9",
+      execution_mode: "HANDOFF",
+      transport: "PROJECT_CLIENT",
+      authority: "CONTEXT_ONLY",
+      read_only: true,
+      context_governor_required: true,
+      source_verification_required_before_execution: true,
+      client_fetch: "project_memory_paths"
+    }
   }
 ];
 

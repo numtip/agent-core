@@ -28,7 +28,24 @@ async function main() {
     console.log(JSON.stringify(await request("/v1/" + command,{method:"POST",body:raw}),null,2));
     return;
   }
-  console.error("Usage: agent <health|doctor|decision|route|qa> [JSON]");
+  const v2Post: Record<string, string> = {
+    "cap-search": "/v2/capabilities/search",
+    "v2-route": "/v2/route",
+    "v2-execute": "/v2/execute",
+    "knowledge-query": "/v2/knowledge/query",
+    "context-govern": "/v2/context/govern",
+  };
+  if (command && command in v2Post) {
+    const raw = args.join(" ");
+    if (!raw) throw new Error("Provide a JSON request body.");
+    console.log(JSON.stringify(await request(v2Post[command], { method: "POST", body: raw }), null, 2));
+    return;
+  }
+  if (command === "capabilities") {
+    console.log(JSON.stringify(await request("/v2/capabilities"), null, 2));
+    return;
+  }
+  console.error("Usage: agent <health|doctor|capabilities|decision|route|qa|cap-search|v2-route|v2-execute|knowledge-query|context-govern> [JSON]");
   process.exitCode = 2;
 }
 main().catch((error)=>{ console.error(error instanceof Error ? error.message : String(error)); process.exitCode=1; });

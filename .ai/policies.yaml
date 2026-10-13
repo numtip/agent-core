@@ -1,0 +1,5 @@
+schema_version: 1
+production: human_approval
+destructive: ask
+external: review
+secrets_in_repo: deny

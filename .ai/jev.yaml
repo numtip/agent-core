@@ -1,0 +1,46 @@
+schema_version: 2
+project:
+  id: agent-core
+  type: control-plane
+platform:
+  enabled: true
+  api: v2
+  endpoint: http://127.0.0.1:8787
+  capability_registry: true
+  gateway: true
+  context_governor: true
+  supervisor: true
+features:
+  task_route: true
+  tool_route: true
+  model_route: true
+  subagent_route: true
+  next_action: true
+  qa_disposition: true
+  context_route: true
+  unified_route: true
+  gateway_execute: true
+  context_govern: true
+  supervisor: true
+  browser: false
+context:
+  strategy: task_specific
+  max_candidates: 40
+fallback:
+  enabled: true
+policy:
+  production_deploy: human_approval
+  destructive: ask
+tools:
+  progressive_disclosure: true
+  search_disclosure_level: summary
+  execute_handoff_only: true
+knowledge:
+  query_path: /v2/knowledge/query
+  default_sources:
+    - openwiki
+    - observation
+    - memory_store
+  memory_repositories: []
+  importance_min: 0.6
+  sync: manual_only

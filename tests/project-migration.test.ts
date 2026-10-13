@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const ids=["52clips","attendance-report-generator","handbook","goffice2026","dbplant","rae-attendance-v2"];
+const ids=["52clips","attendance-report-generator","handbook","goffice2026","dbplant","rae-attendance-v2","agent-core"];
 function text(id:string){return readFileSync(new URL(`../adapters/${id}/jev.yaml`,import.meta.url),"utf8");}
 
 describe("Agent Core v2 project migration contracts",()=>{

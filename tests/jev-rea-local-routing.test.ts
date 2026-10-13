@@ -1,3 +1,4 @@
+import { platform } from "node:os";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createDefaultCapabilityRegistry } from "../src/capability-registry.js";
@@ -92,7 +93,10 @@ describe("REA local Jev routing", () => {
       request: {
         project: "agent-core",
         task: "analyze javascript",
-        tool_arguments: { input_path: "C:\\Windows\\System32\\kernel32.dll" },
+        tool_arguments: {
+          input_path:
+            platform() === "win32" ? "C:\\Windows\\System32\\kernel32.dll" : "/etc/passwd"
+        },
         rea_mcp_connected: true
       }
     });

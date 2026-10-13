@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RuntimeConfig } from "../../src/config.js";
 
 export function testRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -9,5 +11,6 @@ export function testRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   };
 }
 
-export const REA_TEST_WORKSPACE = "F:\\projectAi\\REA";
-export const REA_SYNTHETIC_APP = "F:\\projectAi\\REA\\inbox\\synthetic-app";
+const testsDir = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+export const REA_TEST_WORKSPACE = resolve(testsDir, "fixtures", "rea-workspace");
+export const REA_SYNTHETIC_APP = resolve(REA_TEST_WORKSPACE, "inbox", "synthetic-app");

@@ -5,8 +5,8 @@ export type PathGuardResult =
   | { ok: true; canonicalPath: string }
   | { ok: false; reason: string };
 
-function normalizeWindowsPath(input: string): string {
-  return normalize(input.replace(/\//g, "\\"));
+function hasTraversalSegment(normalizedPath: string): boolean {
+  return normalizedPath.split(/[/\\]/).includes("..");
 }
 
 export function canonicalPathWithinRoots(inputPath: string, roots: string[]): PathGuardResult {
@@ -14,9 +14,11 @@ export function canonicalPathWithinRoots(inputPath: string, roots: string[]): Pa
   if (inputPath.includes("\0")) return { ok: false, reason: "PATH_INVALID" };
   if (!isAbsolute(inputPath)) return { ok: false, reason: "PATH_NOT_ABSOLUTE" };
 
-  const normalized = normalizeWindowsPath(inputPath);
-  if (normalized.startsWith("\\\\")) return { ok: false, reason: "UNC_PATH_BLOCKED" };
-  if (normalized.split("\\").includes("..")) return { ok: false, reason: "PATH_TRAVERSAL" };
+  const normalized = normalize(inputPath);
+  if (process.platform === "win32" && normalized.startsWith("\\\\")) {
+    return { ok: false, reason: "UNC_PATH_BLOCKED" };
+  }
+  if (hasTraversalSegment(normalized)) return { ok: false, reason: "PATH_TRAVERSAL" };
 
   let canonicalTarget: string;
   try {

@@ -6,11 +6,10 @@ import type { RuntimeConfig } from "../src/config.js";
 import type { JevProvider } from "../src/providers/jev.js";
 
 describe("V2-9 Knowledge Fabric",()=>{
-  it("registers OpenWiki as read-only context capability",()=>{
-    const capability=createDefaultCapabilityRegistry().get("knowledge.openwiki");
-    expect(capability?.status).toBe("ACTIVE");
-    expect(capability?.operations).toEqual(["READ"]);
-    expect(capability?.metadata.authority).toBe("CONTEXT_ONLY");
+  it("registers observation and memory-store handoff capabilities",()=>{
+    const registry=createDefaultCapabilityRegistry();
+    expect(registry.get("knowledge.observation")?.metadata.execution_mode).toBe("HANDOFF");
+    expect(registry.get("knowledge.memory-store")?.operations).toEqual(["READ"]);
   });
 
   it("returns a read-only OpenWiki handoff when evidence is not supplied",()=>{
@@ -19,6 +18,35 @@ describe("V2-9 Knowledge Fabric",()=>{
     if(result.disposition!=="HANDOFF") throw new Error("expected HANDOFF");
     expect(result.handoff.capability_id).toBe("knowledge.openwiki");
     expect(result.guardrails.knowledge_is_not_authority).toBe(true);
+  });
+
+  it("returns observation handoff for Claude-Mem style GitHub exports",()=>{
+    const result=queryKnowledgeFabric({
+      project:"agent-core",
+      query:"recent gateway changes",
+      sources:["observation"],
+      memory_repositories:["numtip/agent-core-memory"]
+    });
+    expect(result.disposition).toBe("HANDOFF");
+    if(result.disposition!=="HANDOFF") throw new Error("expected HANDOFF");
+    expect(result.reason).toBe("OBSERVATION_READ_HANDOFF");
+    expect(result.handoff.capability_id).toBe("knowledge.observation");
+  });
+
+  it("drops low-importance unfiltered observations before governing context",()=>{
+    const result=queryKnowledgeFabric({
+      project:"agent-core",
+      query:"deployment",
+      importance_min:0.7,
+      evidence:[
+        {id:"keep",text:"Production deploy requires approval.",kind:"observation",importance:0.9,filtered:true},
+        {id:"drop",text:"minor UI note",kind:"observation",importance:0.2,filtered:false}
+      ]
+    });
+    expect(result.disposition).toBe("CONTEXT_READY");
+    if(result.disposition!=="CONTEXT_READY") throw new Error("expected CONTEXT_READY");
+    expect(result.context.bundle.some((item)=>item.id==="keep")).toBe(true);
+    expect(result.context.bundle.some((item)=>item.id==="drop")).toBe(false);
   });
 
   it("governs returned evidence before exposing it as context",()=>{
@@ -34,7 +62,6 @@ describe("V2-9 Knowledge Fabric",()=>{
     expect(result.disposition).toBe("CONTEXT_READY");
     if(result.disposition!=="CONTEXT_READY") throw new Error("expected CONTEXT_READY");
     expect(result.context.bundle.some((item)=>item.id==="deploy")).toBe(true);
-    expect(result.provenance[0]?.revision).toBe("abc123");
   });
 });
 

@@ -1,0 +1,40 @@
+schema_version: 2
+project:
+  id: agent-core
+  type: control-plane
+platform:
+  api: v2
+  capability_registry: true
+  gateway: true
+  context_governor: true
+  supervisor: true
+features:
+  task_route: true
+  tool_route: true
+  model_route: true
+  subagent_route: true
+  next_action: true
+  qa_disposition: true
+  context_route: true
+  unified_route: true
+  gateway_execute: true
+  context_govern: true
+  supervisor: true
+  browser: false
+policy:
+  production_deploy: human_approval
+  destructive: ask
+context:
+  strategy: task_specific
+  max_candidates: 40
+tools:
+  progressive_disclosure: true
+  preferred_capability_ids:
+    - tool.git
+    - agent.cursor
+    - knowledge.openwiki
+    - knowledge.observation
+    - knowledge.memory-store
+migration:
+  v1_compatible: true
+  preferred_api: v2

@@ -1,8 +1,29 @@
 # Next session — resume guide
 
-**Start from:** `git fetch origin && git checkout main && git pull` (this note was written at `c1411ebbee6a6633fbf8e7a5a8136bed6e9921f5`; pull if `main` has moved).
+**Start from:** `git fetch origin && git checkout main && git pull` (this note was written at `cb4ff559a2263bdfcb1de8c1f7fd4f92caafc423`; pull if `main` has moved).
 
-**Closeout:** `SECURITY_SOURCE_MERGED — PRODUCTION_PENDING` · `CLOSEOUT_DOCUMENTED`. Do not deploy, restart, rotate tokens, or change Cloudflare, MCP, or the egress proxy from this note. `c1411eb` is docs on top of runtime `607b41e`. Neither is the running release.
+**Closeout 2026-10-14:** rotation and handoff tooling hardened (#34, #35), unauthorized-overwrite
+recurrence closed (#36, **open**). Production unchanged at `dbe20a5`. Cursor live activation is
+**BLOCKED on credentials**. Do not deploy, restart, rotate tokens, or change Cloudflare, MCP, or the
+egress proxy from this note.
+
+## Immediate next step
+
+Provision the two existing credentials into the local DPAPI store, then verify live
+`TASK_ROUTE`, `NEXT_ACTION`, `QA_DISPOSITION`. **Do not redesign SSO.** See
+[2026-10-14.md](./2026-10-14.md#cursor-live-activation--blocked-on-credentials-verified) for the
+measured layer map and the exact missing items.
+
+The local adapter workspace (`G:\ProjectAI\agent-core-local`) is **not published** and must not be
+committed here. It holds the DPAPI-backed adapter, the mock QA (28/28), and the ops handoff. Its
+private key material is at `%USERPROFILE%\.age\keys.txt` — never copy, print or commit that.
+
+## Standing instruction: activation does not rotate or weaken anything
+
+The blocked integration is fixed by **issuing and handing over** credentials, not by rotating
+tokens or relaxing Cloudflare policy. Token rotation is DEFERRED by owner decision; that is an
+accepted risk, not permission to change policy to work around it. Preserve the existing production
+security controls.
 
 Production pointer, re-check before any deploy:
 
@@ -32,12 +53,23 @@ REA MCP checks: see `F:\projectAi\REA\README.md` (Cursor `user-rea`).
 
 ## Priorities
 
-1. **Do not deploy `c1411eb`.** Production stays `dbe20a5`. Gate: owner approval, then set `AGENT_CORE_CF_ACCESS_TEAM_DOMAIN` and `AGENT_CORE_CF_ACCESS_AUD` before the symlink switch, or `/control` returns 503. The egress proxy and a browser-MCP `--proxy-server` change are a separate approval. Rollback of that future release is `ln -sfn ~/agent-core/releases/dbe20a5 ~/agent-core/current` and a restart of `agent-core.service` only. See [../STATUS.md](../STATUS.md#security-closeout--2026-10-13) and [../SECURITY_HARDENING_2026-10.md](../SECURITY_HARDENING_2026-10.md).
-2. **Token rotation is OWNER-MANAGED / PENDING.** Do not read credentials. Gate: the owner runs `python3 ~/agent-core/ops/rotate-project-tokens.py --dry-run` first, then a real rotation only if they approve it, then re-does the `rae-attendance-v2` handoff.
-3. **PR #4 stays OPEN / CONFLICTING.** Do not rebase or close it. It overlaps PR #31 in four ops scripts; #31 is the newer git copy. REA activation on the VPS is also a separate approval (`REA_LOCAL_HANDOFF_ENABLED` stays false until then).
-4. **Phase-C knowledge WIP** — apply `git stash list` → `consolidation-preserve-wip-20261013-1743` onto a branch from current `main`.
-5. **Retire or archive** `docs/reality-reconciliation-20261013` after porting any unique docs (e.g. `POST_AUDIT_CLOSURE.md`).
-6. **Doc hygiene:** refresh `docs/rea/LOCAL_PREFLIGHT.md` post-install; keep `JEV_REA_ROUTING_V2.md` status aligned with `main`.
+0. **Cursor live activation (today's blocker).** Provision the existing Cloudflare Access MACHINE
+   service token and one project token into the local DPAPI store, then verify live `TASK_ROUTE`,
+   `NEXT_ACTION`, `QA_DISPOSITION`. **Do not redesign SSO, do not rotate tokens, do not change
+   Cloudflare policy to unblock it** — issue and hand over the credentials instead. Details in
+   [2026-10-14.md](./2026-10-14.md).
+1. **Do not deploy `main`.** Production stays `dbe20a5`. Gate: owner approval, then set `AGENT_CORE_CF_ACCESS_TEAM_DOMAIN` and `AGENT_CORE_CF_ACCESS_AUD` before the symlink switch, or `/control` returns 503. The egress proxy and a browser-MCP `--proxy-server` change are a separate approval. Rollback of that future release is `ln -sfn ~/agent-core/releases/dbe20a5 ~/agent-core/current` and a restart of `agent-core.service` only. See [../STATUS.md](../STATUS.md) and [../SECURITY_HARDENING_2026-10.md](../SECURITY_HARDENING_2026-10.md).
+2. **Token rotation is DEFERRED** by owner decision (2026-10-14). The six exposed identities remain
+   unrotated as an accepted risk. If it is ever resumed: do not read credentials, run
+   `ops/rotate-project-tokens.py --dry-run` first, then rotate only with approval, then re-do the
+   `rae-attendance-v2` handoff. The merged tooling now refuses a production rotation without
+   `--backup-recipient`.
+3. **Merge PR #36** when reviewed — it closes the unauthorized-overwrite recurrence (`--replace`
+   now needs `--confirm-replace`). CI green.
+4. **PR #4 stays OPEN / CONFLICTING.** Do not rebase or close it. It overlaps PR #31 in four ops scripts; #31 is the newer git copy. REA activation on the VPS is also a separate approval (`REA_LOCAL_HANDOFF_ENABLED` stays false until then).
+5. **Phase-C knowledge WIP** — apply `git stash list` → `consolidation-preserve-wip-20261013-1743` onto a branch from current `main`.
+6. **Retire or archive** `docs/reality-reconciliation-20261013` after porting any unique docs (e.g. `POST_AUDIT_CLOSURE.md`).
+7. **Doc hygiene:** refresh `docs/rea/LOCAL_PREFLIGHT.md` post-install; keep `JEV_REA_ROUTING_V2.md` status aligned with `main`.
 
 ## WIP locations
 

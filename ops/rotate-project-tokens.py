@@ -60,7 +60,10 @@ KEY_VAR = "AGENT_CORE_PROJECT_KEYS"
 SCOPE_VAR = "AGENT_CORE_PROJECT_SCOPES"
 SERVICE = "agent-core.service"
 
-EXIT_OK, EXIT_RESTART, EXIT_SMOKE, EXIT_REFUSED = 0, 2, 3, 4
+EXIT_OK, EXIT_RESTART, EXIT_SMOKE, EXIT_REFUSED, EXIT_EDGE = 0, 2, 3, 4, 5
+
+# Smoke outcome kinds.
+SMOKE_OK, SMOKE_TOKEN, SMOKE_EDGE, SMOKE_BAD = "ok", "token", "edge", "bad"
 
 
 class Refuse(Exception):
@@ -254,15 +257,17 @@ def restart_service(no_restart: bool) -> tuple[bool, str]:
 
 
 # --------------------------------------------------------------------------- smoke test
-def smoke(base_url: str, project: str, token: str, timeout: float = 8.0) -> tuple[bool, str]:
-    """One authenticated request per rotated project. Reports status only."""
-    body = json.dumps({
-        "project": project,
-        "decision_type": "QA_DISPOSITION",
-        "state": {"source": "post-rotation-smoke"},
-        "question": {"type": "noul", "instructions": "post-rotation smoke test",
-                     "true_when": "reachable", "false_when": "not reachable"},
-    }).encode("utf-8")
+def looks_like_html(content_type: str, text: str) -> bool:
+    """Cloudflare Access answers with an HTML page. That is an edge-auth failure,
+    which is a different problem from a rejected token and must be reported as such."""
+    if "text/html" in (content_type or "").lower():
+        return True
+    head = (text or "")[:512].lower()
+    return any(marker in head for marker in ("<!doctype html", "<html", "cloudflare access"))
+
+
+def _post_decision(base_url: str, project: str, token: str, body: bytes, timeout: float):
+    """POST /v1/decision once. Returns (status, text, is_html, transport_error)."""
     req = urllib.request.Request(f"{base_url.rstrip('/')}/v1/decision", data=body, method="POST")
     req.add_header("content-type", "application/json")
     req.add_header("x-agent-project", project)
@@ -270,14 +275,115 @@ def smoke(base_url: str, project: str, token: str, timeout: float = 8.0) -> tupl
     req.add_header("user-agent", "agent-core-rotate-smoke/1.0")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(payload, dict) or "disposition" not in payload:
-            return False, f"HTTP {resp.status} but the body is not a decision"
-        return True, f"HTTP {resp.status} disposition={payload['disposition']}"
+            text = resp.read().decode("utf-8", "replace")
+            return resp.status, text, looks_like_html(resp.headers.get("content-type", ""), text), None
     except urllib.error.HTTPError as exc:
-        return False, f"HTTP {exc.code}"
+        try:
+            text = exc.read().decode("utf-8", "replace")
+        except Exception:                                             # noqa: BLE001
+            text = ""
+        ctype = exc.headers.get("content-type", "") if exc.headers else ""
+        return exc.code, text, looks_like_html(ctype, text), None
     except Exception as exc:                                          # noqa: BLE001
-        return False, f"{exc.__class__.__name__}"
+        return 0, "", False, exc.__class__.__name__
+
+
+def smoke_auth_only(base_url: str, project: str, token: str, timeout: float = 8.0):
+    """Zero-cost credential probe: POST a deliberately malformed `{}` body.
+
+    The service authenticates in a pre-handler *before* the body is validated, and
+    `audit.write` only runs after a successful decision. So this exercises the
+    credential path with no model-provider call and no decision audit row:
+
+      valid token   -> 400 INVALID_REQUEST
+      invalid token -> 401 UNAUTHORIZED
+      missing scope -> 403 FORBIDDEN
+
+    Returns (ok, kind, detail).
+    """
+    status, text, is_html, error = _post_decision(base_url, project, token, b"{}", timeout)
+    if error:
+        return False, SMOKE_BAD, error
+    if is_html:
+        return False, SMOKE_EDGE, (f"HTTP {status}: HTML from the edge, not a token verdict "
+                                  "(Cloudflare Access is refusing the request)")
+    if status == 400:
+        return True, SMOKE_OK, "HTTP 400 INVALID_REQUEST (credential accepted, no provider call)"
+    if status == 401:
+        return False, SMOKE_TOKEN, "HTTP 401 UNAUTHORIZED (token rejected)"
+    if status == 403:
+        return False, SMOKE_TOKEN, "HTTP 403 FORBIDDEN (token accepted, scope denied)"
+    return False, SMOKE_BAD, f"HTTP {status} unexpected for an auth-only probe"
+
+
+def smoke(base_url: str, project: str, token: str, timeout: float = 8.0):
+    """PAID functional probe: a real decision request that reaches the model provider.
+    Opt-in via --smoke-functional; never run implicitly. Returns (ok, kind, detail)."""
+    body = json.dumps({
+        "project": project,
+        "decision_type": "QA_DISPOSITION",
+        "state": {"source": "post-rotation-smoke"},
+        "question": {"type": "noul", "instructions": "post-rotation smoke test",
+                     "true_when": "reachable", "false_when": "not reachable"},
+    }).encode("utf-8")
+    status, text, is_html, error = _post_decision(base_url, project, token, body, timeout)
+    if error:
+        return False, SMOKE_BAD, error
+    if is_html:
+        return False, SMOKE_EDGE, (f"HTTP {status}: HTML from the edge, not a decision "
+                                   "(Cloudflare Access is refusing the request)")
+    if status == 401:
+        return False, SMOKE_TOKEN, "HTTP 401 UNAUTHORIZED (token rejected)"
+    if status == 403:
+        return False, SMOKE_TOKEN, "HTTP 403 FORBIDDEN (token accepted, scope denied)"
+    if status != 200:
+        return False, SMOKE_BAD, f"HTTP {status}"
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return False, SMOKE_BAD, f"HTTP {status} but the body is not JSON"
+    if not isinstance(payload, dict) or "disposition" not in payload:
+        return False, SMOKE_BAD, f"HTTP {status} but the body is not a decision"
+    return True, SMOKE_OK, f"HTTP {status} disposition={payload['disposition']}"
+
+
+def run_smoke(base_url: str, project: str, token: str, functional: bool, timeout: float = 8.0):
+    """(ok, kind, detail). functional=False is the zero-cost auth-only probe."""
+    if functional:
+        return smoke(base_url, project, token, timeout)
+    return smoke_auth_only(base_url, project, token, timeout)
+
+
+def smoke_line(project: str, kind: str, detail: str) -> str:
+    label = {SMOKE_OK: "OK  ", SMOKE_TOKEN: "FAIL", SMOKE_EDGE: "EDGE", SMOKE_BAD: "FAIL"}[kind]
+    return f"  smoke {project:32s} {label} {detail}"
+
+
+def smoke_targets(base_url: str, targets, keys: dict, functional: bool) -> tuple[int, int]:
+    """Announce the mode, then print one line per target. Returns (bad, edge) counts."""
+    print("smoke mode: functional (PAID — reaches the model provider)"
+          if functional else
+          "smoke mode: auth-only (zero cost — no provider call, no decision audit row)")
+    bad = edge = 0
+    for project in targets:
+        ok, kind, detail = run_smoke(base_url, project, keys[project], functional)
+        print(smoke_line(project, kind, detail))
+        if kind == SMOKE_EDGE:
+            edge += 1
+        elif not ok:
+            bad += 1
+    return bad, edge
+
+
+def smoke_verdict(bad: int, edge: int) -> int:
+    if edge:
+        print("! the edge refused the request before it reached agent-core. This is a Cloudflare\n"
+              "! Access problem, not a token problem: fix the edge before judging the credential.",
+              file=sys.stderr)
+        return EXIT_EDGE
+    if bad:
+        return EXIT_SMOKE
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------- planning
@@ -331,13 +437,8 @@ def cmd_rollback(args) -> int:
     if not ok:
         return EXIT_RESTART
     if args.base_url:
-        bad = 0
-        for project, token in sorted(keys.items()):
-            good, detail = smoke(args.base_url, project, token)
-            print(f"  smoke {project:32s} {'OK  ' if good else 'FAIL'} {detail}")
-            bad += 0 if good else 1
-        if bad:
-            return EXIT_SMOKE
+        bad, edge = smoke_targets(args.base_url, sorted(keys), keys, args.smoke_functional)
+        return smoke_verdict(bad, edge)
     return EXIT_OK
 
 
@@ -351,13 +452,8 @@ def cmd_restart_only(args) -> int:
     if not ok:
         return EXIT_RESTART
     if args.base_url:
-        bad = 0
-        for project in targets:
-            good, detail = smoke(args.base_url, project, keys[project])
-            print(f"  smoke {project:32s} {'OK  ' if good else 'FAIL'} {detail}")
-            bad += 0 if good else 1
-        if bad:
-            return EXIT_SMOKE
+        bad, edge = smoke_targets(args.base_url, targets, keys, args.smoke_functional)
+        return smoke_verdict(bad, edge)
     return EXIT_OK
 
 
@@ -366,12 +462,35 @@ def cmd_smoke(args) -> int:
         raise Refuse("FAIL: --smoke needs --base-url")
     lines = read_env(args.env_file)
     keys, _scopes, targets, _warnings = plan_rotation(lines, args.only_projects())
-    bad = 0
-    for project in targets:
-        good, detail = smoke(args.base_url, project, keys[project])
-        print(f"  smoke {project:32s} {'OK  ' if good else 'FAIL'} {detail}")
-        bad += 0 if good else 1
-    return EXIT_SMOKE if bad else EXIT_OK
+    bad, edge = smoke_targets(args.base_url, targets, keys, bool(args.smoke_functional))
+    return smoke_verdict(bad, edge)
+
+
+def is_production_env(env_file: str, args=None) -> bool:
+    """True when this run targets the production host layout.
+
+    The VPS uses the default env path with its own HOME, so a default-path run is a
+    production run. AGENT_CORE_ENV=production is the explicit signal (config.ts treats
+    that value as production), and --production forces it for a non-default path.
+    A run against an explicit --env-file elsewhere only warns.
+    """
+    if getattr(args, "production", False):
+        return True
+    if str(os.environ.get("AGENT_CORE_ENV", "")).strip().lower() == "production":
+        return True
+    try:
+        return os.path.realpath(env_file) == os.path.realpath(default_env_file())
+    except OSError:
+        return False
+
+
+BREAK_GLASS_BANNER = (
+    "!" * 74,
+    "! BREAK-GLASS: rotating WITHOUT an encrypted backup.",
+    "! This rotation CANNOT be rolled back. If a consumer is missed there is no",
+    "! previous token to restore, and every affected identity must be re-issued.",
+    "!" * 74,
+)
 
 
 def cmd_rotate(args) -> int:
@@ -390,7 +509,19 @@ def cmd_rotate(args) -> int:
     recipients = args.backup_recipient or [
         r for r in os.environ.get("AGENT_CORE_BACKUP_RECIPIENT", "").split(",") if r.strip()]
     if not recipients:
-        print("  ! no --backup-recipient: rotating WITHOUT a backup (rotation is not reversible)")
+        if is_production_env(args.env_file, args) and not args.break_glass_no_backup:
+            raise Refuse(
+                "FAIL: refusing to rotate in production without --backup-recipient.\n"
+                "      A rotation without a backup cannot be undone: if a consumer is missed,\n"
+                "      there is no previous token to restore and every affected identity must\n"
+                "      be re-issued by hand.\n"
+                "      Either pass --backup-recipient <age-or-gpg-recipient>, or accept an\n"
+                "      unrecoverable rotation explicitly with --break-glass-no-backup.")
+        if args.break_glass_no_backup:
+            for line in BREAK_GLASS_BANNER:
+                print(line)
+        else:
+            print("  ! no --backup-recipient: rotating WITHOUT a backup (rotation is not reversible)")
 
     if args.dry_run:
         return EXIT_OK
@@ -415,15 +546,11 @@ def cmd_rotate(args) -> int:
         return EXIT_RESTART
 
     if args.base_url:
-        bad = 0
-        for project in targets:
-            good, detail = smoke(args.base_url, project, new_keys[project])
-            print(f"  smoke {project:32s} {'OK  ' if good else 'FAIL'} {detail}")
-            bad += 0 if good else 1
-        if bad:
-            print("! smoke test failed: the new token is not accepted. Roll back.",
-                  file=sys.stderr)
-            return EXIT_SMOKE
+        bad, edge = smoke_targets(args.base_url, targets, new_keys, args.smoke_functional)
+        code = smoke_verdict(bad, edge)
+        if code:
+            print("! smoke failed: the new token is not confirmed. Roll back.", file=sys.stderr)
+            return code
     return EXIT_OK
 
 
@@ -441,7 +568,16 @@ def main() -> int:
     ap.add_argument("--backup-recipient", action="append", default=[],
                     help="age or gpg recipient for the encrypted backup (repeatable)")
     ap.add_argument("--base-url", default=os.environ.get("AGENT_CORE_SMOKE_URL", ""),
-                    help="run one authenticated smoke request per rotated project")
+                    help="run the smoke check per rotated project (auth-only by default)")
+    ap.add_argument("--smoke-functional", action="store_true",
+                    help="make the smoke a PAID decision request that reaches the model provider; "
+                         "without this the smoke is the zero-cost auth-only probe")
+    ap.add_argument("--production", action="store_true",
+                    help="treat this run as production (forces the --backup-recipient requirement "
+                         "even for a non-default --env-file)")
+    ap.add_argument("--break-glass-no-backup", action="store_true",
+                    help="allow a PRODUCTION rotation with no encrypted backup; the rotation then "
+                         "cannot be rolled back")
     ap.add_argument("--smoke", action="store_true", help="only run the smoke test")
     ap.add_argument("--restart-only", action="store_true",
                     help="roll forward: restart and smoke-test without rotating")

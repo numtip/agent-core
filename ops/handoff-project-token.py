@@ -16,11 +16,20 @@ Security properties (all enforced in code, not by convention):
   * the destination must not be inside an existing production runtime tree
     (default deny list, overridable only with an explicit flag);
   * the parent directory is created with mode 0700, the token file with 0600;
+  * the payload lands in a 0600 temp file **in the destination directory**, is
+    verified (mode + sha256) BEFORE the rename, and is only then renamed into
+    place. A failure before the rename leaves an existing token untouched, and
+    the temp file is always removed (EXIT trap);
   * verification re-reads only metadata + sha256 on the remote side; the value
     is never transmitted back.
 
+Existing destinations are refused unless `--replace` is given, and `--replace`
+itself is refused unless `--apply` is also given: replacing a live credential is
+a deliberate act, never a side effect of re-running a delivery.
+
   python3 handoff-project-token.py --dest /abs/path/agent-core.token            # DRY RUN (default)
   python3 handoff-project-token.py --dest /abs/path/agent-core.token --apply
+  python3 handoff-project-token.py --dest /abs/path/agent-core.token --apply --replace
   python3 handoff-project-token.py --dest /abs/path/agent-core.token --verify-only
 """
 import argparse
@@ -123,10 +132,47 @@ def remote_preflight(dest: str) -> tuple[bool, str]:
     return rc == 0, (out + err).strip()
 
 
+# The remote write: 0600 temp file in the destination directory -> verify mode and
+# sha256 -> atomic rename. Any failure before the rename exits non-zero and leaves
+# an existing destination untouched; the EXIT trap removes the temp file either way.
+#
+# Placeholders use @@NAME@@ sentinels rather than %-formatting because the script
+# itself contains `stat -c '%a'` / `'%U'` / `'%s'`.
+REMOTE_WRITE = r"""umask 077
+parent=@@PARENT@@
+d=@@DEST@@
+tmp="$parent/.@@BASENAME@@.incoming.$$"
+cleanup() { [ -e "$tmp" ] && rm -f "$tmp"; return 0; }
+trap cleanup EXIT HUP INT TERM
+mkdir -p "$parent" && chmod 700 "$parent" || exit 20
+if [ -e "$tmp" ] || [ -L "$tmp" ]; then exit 21; fi
+( set -C; cat > "$tmp" ) || exit 22
+chmod 600 "$tmp" || exit 23
+tmode=$(stat -c '%a' "$tmp" 2>/dev/null)
+tsum=$(sha256sum "$tmp" | cut -c1-12)
+[ "$tmode" = "600" ] || exit 24
+[ "$tsum" = "@@EXPECT@@" ] || exit 25
+if [ "@@REPLACE@@" != "1" ] && { [ -e "$d" ] || [ -L "$d" ]; }; then exit 26; fi
+mv -f "$tmp" "$d" || exit 27
+exit 0
+"""
+
+
+def remote_write_command(parent: str, dest: str, expect_fp: str, replace: bool) -> str:
+    return (REMOTE_WRITE
+            .replace("@@PARENT@@", shlex.quote(parent))
+            .replace("@@DEST@@", shlex.quote(dest))
+            .replace("@@BASENAME@@", BASENAME)
+            .replace("@@EXPECT@@", expect_fp)
+            .replace("@@REPLACE@@", "1" if replace else "0"))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dest", required=True, help=f"remote ABSOLUTE path ending in {BASENAME}")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--replace", action="store_true",
+                    help="allow replacing an existing destination file (requires --apply)")
     ap.add_argument("--verify-only", action="store_true")
     ap.add_argument("--src-file", help="local 0600 file whose exact bytes are the payload "
                                        "(default: the project token from the protected env)")
@@ -135,6 +181,9 @@ def main() -> None:
     errs = check_dest(a.dest)
     if errs:
         sys.exit("REFUSING (local checks): " + "; ".join(errs))
+
+    if a.replace and not a.apply:
+        sys.exit("REFUSING: --replace replaces a live credential and requires --apply")
 
     payload, expect_fp, desc = load_payload(a.src_file)
     print(f"payload={desc} sha256[:12]={expect_fp}")
@@ -164,21 +213,26 @@ def main() -> None:
         print(f"verify(remote): {out.strip().replace(chr(10), ' | ')}")
         return
 
-    if "EXISTS" in pre:
-        sys.exit("REFUSING: destination already exists (no overwrite)")
+    if "EXISTS" in pre and not a.replace:
+        sys.exit("REFUSING: destination already exists (pass --replace --apply to overwrite)")
 
     if not a.apply:
-        print(f"DRY RUN — would create {os.path.dirname(a.dest)} (0700) and write {a.dest} (0600) on "
-              f"{SSH_TARGET} via ssh stdin. Nothing written.")
+        action = "replace" if a.replace else "create"
+        print(f"DRY RUN — would {action} {a.dest} (0600) on {SSH_TARGET} via ssh stdin, "
+              "verifying mode+sha256 in a temp file before an atomic rename. Nothing written.")
         return
 
-    parent, d = shlex.quote(os.path.dirname(a.dest)), shlex.quote(a.dest)
-    remote = (f"umask 077 && mkdir -p {parent} && chmod 700 {parent} && "
-              f"set -C && cat > {d} && chmod 600 {d}")
+    remote = remote_write_command(os.path.dirname(a.dest), a.dest, expect_fp, a.replace)
     rc, out, err = ssh(remote, stdin_bytes=payload)
     if rc != 0:
-        sys.exit(f"FAILED: remote write rc={rc} {(out + err).strip()[:200]}")
-    rc, out, err = ssh(f"stat -c '%a %U %s' {d}; sha256sum {d} | cut -c1-12")
+        # The remote script validates before renaming, so a non-zero exit here means the
+        # destination was not modified (or, with --replace, still holds the previous value).
+        detail = (out + err).strip().splitlines()[:1]
+        sys.exit(f"FAILED: remote write/verify rejected before rename rc={rc} "
+                 f"{detail[0] if detail else ''} — destination unchanged")
+
+    rc, out, err = ssh(f"stat -c '%a %U %s' {shlex.quote(a.dest)}; "
+                       f"sha256sum {shlex.quote(a.dest)} | cut -c1-12")
     parts = out.split()
     mode = parts[0] if parts else "?"
     remote_fp = parts[-1] if parts else ""

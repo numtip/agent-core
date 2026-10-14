@@ -78,12 +78,19 @@ class ReversibleCipher:
 
 
 class TokenAwareServer:
-    """Models the live service: only the token currently in the env file is accepted."""
+    """Models the live service closely enough to test both smoke modes.
 
-    def __init__(self, env_file: str):
+    Authentication runs first (as the real fastify pre-handler does), then body
+    validation. So `{}` authenticates and is rejected as INVALID_REQUEST (400)
+    without ever reaching the provider, while a full decision request returns 200.
+    An `html_mode` server models the Cloudflare Access layer instead.
+    """
+
+    def __init__(self, env_file: str, html_mode: bool = False):
         self.env_file = env_file
         self.seen: list[tuple[str, str]] = []
         self.frozen: dict | None = None
+        self.html_mode = html_mode
         outer = self
 
         def current_keys() -> dict:
@@ -100,20 +107,41 @@ class TokenAwareServer:
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
-                self.rfile.read(int(self.headers.get("content-length") or 0))
+                raw = self.rfile.read(int(self.headers.get("content-length") or 0))
                 project = self.headers.get("x-agent-project") or ""
                 token = self.headers.get("x-agent-project-token") or ""
                 outer.seen.append((project, token))
-                ok = bool(project) and bool(token) and current_keys().get(project) == token
-                payload = json.dumps({"decision_type": "QA_DISPOSITION", "result": "ok",
-                                      "confidence": 0.9, "reason_code": None, "fallback": False,
-                                      "disposition": "EXECUTE", "provider_request_id": None}
-                                     if ok else {"error": "UNAUTHORIZED"})
-                self.send_response(200 if ok else 401)
-                self.send_header("content-type", "application/json")
+
+                if outer.html_mode:
+                    payload = "<!doctype html><html><head><title>Error - Cloudflare Access</title>"
+                    self._send(403, payload.encode(), "text/html")
+                    return
+
+                authenticated = bool(project) and bool(token) and current_keys().get(project) == token
+                if not authenticated:
+                    self._send(401, json.dumps({"error": "UNAUTHORIZED"}).encode())
+                    return
+                try:
+                    parsed = json.loads(raw.decode() or "{}")
+                except ValueError:
+                    parsed = None
+                complete = (isinstance(parsed, dict)
+                            and "decision_type" in parsed and "question" in parsed
+                            and "project" in parsed)
+                if not complete:
+                    self._send(400, json.dumps({"error": "INVALID_REQUEST"}).encode())
+                    return
+                self._send(200, json.dumps({
+                    "decision_type": parsed["decision_type"], "result": "ok", "confidence": 0.9,
+                    "reason_code": None, "fallback": False, "disposition": "EXECUTE",
+                    "provider_request_id": None}).encode())
+
+            def _send(self, status: int, payload: bytes, ctype: str = "application/json"):
+                self.send_response(status)
+                self.send_header("content-type", ctype)
                 self.send_header("content-length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(payload.encode())
+                self.wfile.write(payload)
 
             def log_message(self, *a):
                 pass
@@ -250,6 +278,11 @@ class RotateHarness(unittest.TestCase):
 
     def local_server(self) -> str:
         self.server = TokenAwareServer(self.env_file)
+        return self.server.base
+
+    def html_server(self) -> str:
+        """A server that answers every request the way Cloudflare Access does."""
+        self.server = TokenAwareServer(self.env_file, html_mode=True)
         return self.server.base
 
     def assertNoSecrets(self, output: str, *values: str):
@@ -456,11 +489,13 @@ class PartialHandoff(RotateHarness):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotEqual(self.keys()["dbplant"], self.original_keys["dbplant"])
 
-    def test_smoke_reaches_the_configured_endpoint_and_sends_the_new_token(self):
+    def test_functional_smoke_reaches_the_endpoint_and_sends_the_new_token(self):
         base = self.local_server()
-        r = self.run_cli("--only", "rae-attendance-v2", "--no-restart", "--base-url", base)
+        r = self.run_cli("--only", "rae-attendance-v2", "--no-restart", "--base-url", base,
+                         "--smoke-functional")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("disposition=EXECUTE", r.stdout)
+        self.assertIn("functional (PAID", r.stdout)
         self.assertEqual(self.server.seen, [("rae-attendance-v2", self.keys()["rae-attendance-v2"])])
 
     def test_smoke_failure_exits_three_and_advises_rollback(self):
@@ -477,9 +512,17 @@ class StaleConsumers(RotateHarness):
     def token_status(self, base: str, project: str, token: str) -> int:
         import urllib.error
         import urllib.request
+        # A COMPLETE decision request: the service authenticates first, so a partial
+        # body would return 400 before the token verdict is observable.
+        body = json.dumps({
+            "project": project,
+            "decision_type": "QA_DISPOSITION",
+            "state": {},
+            "question": {"type": "noul", "instructions": "token check",
+                         "true_when": "yes", "false_when": "no"},
+        }).encode()
         req = urllib.request.Request(
-            base + "/v1/decision", method="POST",
-            data=json.dumps({"project": project}).encode(),
+            base + "/v1/decision", method="POST", data=body,
             headers={"x-agent-project": project, "x-agent-project-token": token})
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -626,7 +669,7 @@ class BackupAndRollback(RotateHarness):
 
         base = self.local_server()
         code, out, err = self.run_inproc("--rollback", backup, "--no-restart", "--base-url", base,
-                                         cipher=cipher, which=self.only_age)
+                                         "--smoke-functional", cipher=cipher, which=self.only_age)
         self.assertEqual(code, 0, out + err)
         self.assertEqual(open(self.env_file, "rb").read(), before,
                          "rollback must restore the pre-rotation bytes exactly")
@@ -759,6 +802,125 @@ class HandoffCompatibility(RotateHarness):
             token, scopes = module.load_token()
             self.assertEqual(token, after[project], project)
             self.assertEqual(scopes, ["decision"], project)
+
+
+class AuthOnlySmoke(RotateHarness):
+    """The zero-cost smoke: POST malformed `{}`. 400 means the credential works and
+    nothing reached the provider; 401 means the credential is wrong."""
+
+    def test_auth_only_is_the_default_and_is_zero_cost(self):
+        base = self.local_server()
+        r = self.run_cli("--smoke", "--only", "rae-attendance-v2", "--base-url", base)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("auth-only (zero cost", r.stdout)
+        self.assertIn("HTTP 400 INVALID_REQUEST", r.stdout)
+        self.assertNotIn("disposition=", r.stdout, "no decision may be requested in auth-only mode")
+
+    def test_auth_only_sends_an_empty_body(self):
+        base = self.local_server()
+        self.run_cli("--smoke", "--only", "handbook", "--base-url", base)
+        self.assertEqual(self.server.seen, [("handbook", self.keys()["handbook"])])
+
+    def test_auth_only_reports_a_stale_token_as_401(self):
+        base = self.local_server()
+        self.assertEqual(self.run_cli("--only", "handbook", "--no-restart").returncode, 0)
+        self.server.freeze()
+        self.write_env(keys=self.original_keys)
+        r = self.run_cli("--smoke", "--only", "handbook", "--base-url", base)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("HTTP 401 UNAUTHORIZED", r.stdout)
+        self.assertNotIn("disposition=", r.stdout)
+
+    def test_auth_only_accepts_the_rotated_token_without_a_provider_call(self):
+        base = self.local_server()
+        self.assertEqual(self.run_cli("--only", "rae-attendance-v2", "--no-restart").returncode, 0)
+        r = self.run_cli("--smoke", "--only", "rae-attendance-v2", "--base-url", base)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("OK", r.stdout)
+
+    def test_rotation_runs_auth_only_smoke_by_default(self):
+        base = self.local_server()
+        r = self.run_cli("--only", "rae-attendance-v2", "--no-restart", "--base-url", base)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("auth-only (zero cost", r.stdout)
+        self.assertNotIn("disposition=", r.stdout)
+
+    def test_rotation_with_a_stale_edge_fails_but_does_not_claim_a_token_problem(self):
+        base = self.html_server()
+        r = self.run_cli("--smoke", "--only", "handbook", "--base-url", base)
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("EDGE", r.stdout)
+        self.assertIn("Cloudflare", r.stdout + r.stderr)
+        self.assertIn("not a token problem", r.stderr)
+
+
+class EdgeFailureIsNotATokenFailure(RotateHarness):
+    """A Cloudflare Access HTML page must never be read as a credential verdict."""
+
+    def test_html_response_is_reported_as_edge_and_exits_five(self):
+        base = self.html_server()
+        r = self.run_cli("--smoke", "--only", "rae-attendance-v2", "--base-url", base)
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("EDGE", r.stdout)
+        self.assertNotIn("HTTP 401", r.stdout)
+        self.assertNotIn("HTTP 400", r.stdout)
+        self.assertIn("fix the edge", r.stderr)
+
+    def test_html_response_is_edge_even_in_functional_mode(self):
+        base = self.html_server()
+        r = self.run_cli("--smoke", "--only", "rae-attendance-v2", "--base-url", base,
+                         "--smoke-functional")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("EDGE", r.stdout)
+
+    def test_unreachable_endpoint_is_a_transport_failure_not_a_token_failure(self):
+        r = self.run_cli("--smoke", "--only", "rae-attendance-v2",
+                         "--base-url", "http://127.0.0.1:1")
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("FAIL", r.stdout)
+
+
+class ProductionBackupGate(RotateHarness):
+    """A production rotation must not proceed without a recoverable backup."""
+
+    def test_production_without_recipient_is_refused(self):
+        code, out, err = self.run_inproc("--no-restart", "--production")
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("refusing to rotate in production", out + err)
+        self.assertIn("--backup-recipient", out + err)
+        self.assertEqual(self.keys(), self.original_keys, "a refusal must not rotate")
+
+    def test_production_is_detected_from_AGENT_CORE_ENV(self):
+        os.environ["AGENT_CORE_ENV"] = "production"
+        try:
+            code, out, err = self.run_inproc("--no-restart")
+        finally:
+            del os.environ["AGENT_CORE_ENV"]
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("refusing to rotate in production", out + err)
+
+    def test_break_glass_allows_it_with_a_prominent_warning(self):
+        code, out, err = self.run_inproc("--no-restart", "--break-glass-no-backup",
+                                        "--production")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("BREAK-GLASS", out)
+        self.assertIn("CANNOT be rolled back", out)
+        self.assertNotEqual(self.keys(), self.original_keys, "break-glass still rotates")
+
+    def test_non_production_still_only_warns(self):
+        code, out, err = self.run_inproc("--no-restart")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("not reversible", out)
+        self.assertNotIn("BREAK-GLASS", out)
+
+    def test_production_with_a_recipient_is_allowed(self):
+        code, out, err = self.run_inproc("--no-restart", "--production",
+                                        "--backup-dir", self.backup_dir,
+                                        "--backup-recipient", "syn@example.invalid",
+                                        cipher=ReversibleCipher(), which=self.only_age)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(len(self.backups()), 1, self.backups())
+        self.assertNotIn("BREAK-GLASS", out)
 
 
 if __name__ == "__main__":

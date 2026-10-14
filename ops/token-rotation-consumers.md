@@ -57,11 +57,47 @@ on the target, so it is safe to inventory holders without exposing a value.
        --base-url https://agent.raemanagemju.net --apply
    ```
 
-   Exit codes: `0` ok · `2` the env file changed but the service is not confirmed active ·
-   `3` the new token was not accepted · `4` refused before writing anything.
+   Exit codes:
+
+   | Code | Meaning |
+   |---|---|
+   | `0` | ok |
+   | `2` | the env file changed but the service is not confirmed active |
+   | `3` | the smoke found a bad/absent credential |
+   | `4` | refused before writing anything (including the production backup gate) |
+   | `5` | the **edge** (Cloudflare Access) refused the request; not a token verdict |
+
 4. Distribute the new token to each consumer out of band. Never in a repo, a chat, or a log.
 5. Confirm each consumer: the pre-rotation token must now return `401`, the new one `200`.
 6. Keep the encrypted backup until every consumer is confirmed.
+
+### Production requires a backup
+
+On the production layout (`$HOME/.config/agent-core/agent-core.env`, or
+`AGENT_CORE_ENV=production`, or an explicit `--production`) a rotation with no
+`--backup-recipient` is **refused**. To accept an unrecoverable rotation you must say so
+explicitly:
+
+```bash
+--break-glass-no-backup     # prints a BREAK-GLASS banner; the rotation cannot be rolled back
+```
+
+The break-glass flag is for a documented emergency, never for convenience.
+
+### Smoke cost
+
+The smoke is **auth-only by default**: it posts a deliberately malformed `{}` body, which the
+service rejects with `400 INVALID_REQUEST` *after* authenticating and *before* any provider call
+or decision audit row. So it costs nothing and is safe to run on every rotation.
+
+A **functional** smoke makes a real decision request and therefore reaches the model provider:
+
+```bash
+--smoke-functional      # PAID. Opt in deliberately.
+```
+
+An HTML response is reported as `EDGE`, not as a bad token — Cloudflare Access refusing the request
+is a different problem from a rejected credential, and exit code `5` says so.
 
 ## Recovering
 
@@ -70,6 +106,7 @@ on the target, so it is safe to inventory holders without exposing a value.
   `--restart-only` to finish without rotating again.
 - **A consumer was missed** (exit `3`, or a `401` report): roll back, then retry with a wider
   window. Do not "just rotate again" — that invalidates the tokens you already distributed.
+- **Edge failure** (exit `5`): fix Cloudflare Access first. Rotating again will not help.
 
 ## Verification recipe
 
@@ -78,6 +115,58 @@ python3 ops/rotate-project-tokens.py --smoke --only <identity> \
     --base-url https://agent.raemanagemju.net
 ```
 
-A stale token must return `401`; an accepted one returns a JSON body with a `disposition`. An
-**HTML** body means Cloudflare Access refused the request before it reached the app, which is a
-different problem from a bad token.
+A stale token must return `401`; an accepted one returns `400 INVALID_REQUEST` in auth-only mode
+(and a JSON body with a `disposition` in `--smoke-functional` mode). An **HTML** body means
+Cloudflare Access refused the request before it reached the app, which is a different problem from
+a bad token — the tool reports it as `EDGE` and exits `5`.
+
+## Delivering a rotated token to a consumer host
+
+`ops/handoff-project-token.py` streams the value over `ssh` stdin and never puts it in argv, a
+local temp file, a pipeline, stdout or a log.
+
+```bash
+# dry run (default): checks the destination, writes nothing
+python3 ops/handoff-project-token.py --dest /home/rae_admin/.config/rae-attendance-v2-qa/agent-core.token
+
+# deliver
+python3 ops/handoff-project-token.py --dest <abs path> --apply
+
+# replace an existing credential (needs BOTH flags; never an accident)
+python3 ops/handoff-project-token.py --dest <abs path> --apply --replace
+
+# inventory a holder without exposing the value
+python3 ops/handoff-project-token.py --dest <abs path> --verify-only
+```
+
+How the write works:
+
+1. the payload lands in a **0600 temp file in the destination directory**;
+2. its **mode and sha256 are verified before anything is renamed**;
+3. only then is it renamed over the destination (same directory, so the rename is atomic);
+4. the final file is re-verified, and a temp file is removed on any failure path.
+
+Consequences worth knowing:
+
+- A pre-rename failure **leaves an existing credential exactly as it was** — there is no window in
+  which the destination is missing or half-written.
+- An existing destination is refused unless `--replace` is given, and `--replace` is refused unless
+  `--apply` is also given. Replacing a live credential is always deliberate.
+- Symlink destinations, unsafe paths and un-ignored Git worktrees are still refused.
+- After a rotation the fingerprint changes, so `HANDOFF_EXPECT_FP` must be updated before the next
+  handoff will run.
+
+## Approval gates (all require a human)
+
+| Gate | Approver | Why |
+|---|---|---|
+| Confirm which identities were exposed | owner | sets the blast radius |
+| Approve the `--only` list | owner | each identity has a brief outage |
+| Confirm the backup recipient and key custody | owner | an undecryptable backup is not a backup |
+| Approve any `--break-glass-no-backup` | owner | the rotation becomes unrecoverable |
+| Approve any `--smoke-functional` run | owner | it spends provider budget |
+| Execute the restart | owner | production service action |
+| Deliver tokens to consumers | owner | out of band, never in a repo |
+| Place the merged `ops/*.py` on the host | owner | host change, not a service deploy |
+| Deploy `main` to the service | owner, separate | unrelated to rotation |
+

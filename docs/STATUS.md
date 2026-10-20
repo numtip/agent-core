@@ -1,5 +1,24 @@
 # Platform Status
 
+## Groq / Hermes staging closeout — 2026-10-21 (VPS 237)
+
+**Verdict: PASS** · Production Jev on `:8787` unchanged · Groq pilot **staging only** on `:8788`.
+
+| Item | State |
+|---|---|
+| Production | `agent-core.service` **active** · `127.0.0.1:8787` · release `dbe20a5` · `/v2/inference/*` → **404** |
+| Groq staging | `agent-core-groq-staging.service` **active** · `127.0.0.1:8788` · release `41195f6` (built tree, not `current`) |
+| Model | `openai/gpt-oss-120b` (Groq) · `groq_fallback_openrouter: false` · `GROQ_MONTHLY_BUDGET_USD=10` |
+| Auth | Project `groq-staging-v237` · scope **`inference` only** · credentials in `~/.config/agent-core/agent-core-groq-staging.env` (600) — **not recorded here** |
+| Hermes | Skill `~/.hermes/skills/integrations/agent-core-groq-inference/` · CONTEXT_ONLY script `scripts/inference_complete.py` |
+| Ledger (live) | spent **$0.0001665** · remaining **$9.999833** · **4** requests · `overspend_blocked: false` |
+
+**Latest Hermes-initiated inference (evidence, no secrets):** `~/agent-core/logs/groq-staging-v237/hermes-oneshot.log` and `hermes-skill-script.json` — HTTP **200**, provider **groq**, ~**305–452 ms**, ~**$0.000046**/call; audit last row `INFERENCE_COMPLETE` / `groq` / `latency_ms: 299` in `~/agent-core/logs/groq-staging-v237/audit.jsonl`.
+
+**Blockers:** none for loopback Hermes skill → staging → Groq. Orphan scratch listeners `18881–18888` (J2-C9C) remain unrelated to staging ledger; optional cleanup only.
+
+---
+
 ## Current runtime line
 
 Verified on VPS `ubantu24` (`10.1.254.237`) at 2026-10-13 23:16 +07 by reading the live user unit, and re-read at 23:23 +07 (same symlink, same MainPID, health still `0.7.0`). No restart and no deploy were part of either check. Closeout status: **SECURITY_SOURCE_MERGED — PRODUCTION_PENDING**. Documentation closeout: **CLOSEOUT_DOCUMENTED** at `c1411eb` (PR #32). The morning audit that still says the live SHA is unknown is historical: [audits/AGENT_CORE_REALITY_AUDIT_20261013.md](audits/AGENT_CORE_REALITY_AUDIT_20261013.md).

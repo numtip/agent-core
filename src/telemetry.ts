@@ -5,6 +5,8 @@ export type AuditEvent = {
   timestamp: string; project: string; route: string; action: string; result: string;
   task_id?: string; decision_type?: string; confidence?: number; fallback?: boolean;
   latency_ms?: number; provider_request_id?: string | null;
+  inference_provider?: string; inference_model?: string;
+  prompt_tokens?: number; completion_tokens?: number; estimated_cost_usd?: number;
 };
 
 export class Metrics {

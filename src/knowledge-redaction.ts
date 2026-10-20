@@ -9,6 +9,7 @@ const PRIVATE_MARKERS = [/<private>/i, /\[private\]/i, /DO NOT SYNC/i];
 const SECRET_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "bearer", pattern: /Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi },
   { id: "openrouter_key", pattern: /sk-or-v1-[A-Za-z0-9]+/gi },
+  { id: "groq_key", pattern: /gsk_[A-Za-z0-9]+/gi },
   { id: "openai_key", pattern: /sk-[A-Za-z0-9]{20,}/gi },
   { id: "agent_token", pattern: /AGENT_(?:PROJECT_)?TOKEN\s*=\s*\S+/gi },
   { id: "pem_block", pattern: /-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----/g },

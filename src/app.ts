@@ -1,5 +1,5 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { loadConfig, type RuntimeConfig } from "./config.js";
+import { groqRuntimeDefaults, loadConfig, type RuntimeConfig } from "./config.js";
 import { JevProvider } from "./providers/jev.js";
 import { decisionRequestSchema, decisionResponseSchema } from "./schemas.js";
 import { DecisionService, DecisionUnavailableError } from "./services/decision.js";
@@ -26,10 +26,15 @@ import { CfAccessVerifier } from "./control-auth.js";
 import type { Writable } from "node:stream";
 import { reaLocalRouteRequestSchema } from "./rea-local/schemas.js";
 import { routeReaLocalHandoff } from "./rea-local/route.js";
+import { inferenceCompleteRequestSchema, inferenceCompleteResponseSchema } from "./inference/schemas.js";
+import { InferenceBudgetExceededError, InferenceLedgerCorruptError } from "./inference/cost-guard.js";
+import { InferenceUsageAmbiguousError } from "./inference/usage-validation.js";
+import { InferencePilotBlockedError, InferenceService, InferenceUnavailableError } from "./services/inference.js";
 import { z } from "zod";
 
 export type AppDependencies = {
   config?:RuntimeConfig; provider?:JevProvider; metrics?:Metrics; audit?:AuditLogger; mcp?:McpPlaywrightClient;
+  inference?:InferenceService;
   lookup?:LookupAll; jwksFetch?:typeof fetch; logStream?:Writable;
 };
 
@@ -44,6 +49,7 @@ export function buildApp(deps:AppDependencies={}) {
   const config=deps.config ?? loadConfig();
   const provider=deps.provider ?? new JevProvider(config);
   const service=new DecisionService(config,provider);
+  const inference=deps.inference ?? new InferenceService(config);
   const metrics=deps.metrics ?? new Metrics();
   const audit=deps.audit ?? new AuditLogger(config.auditLogPath);
   const limiter=new RateLimiter(config.rateLimitMax,config.rateLimitWindowMs);
@@ -94,7 +100,10 @@ export function buildApp(deps:AppDependencies={}) {
     if(!check.valid){ metrics.increment("control_auth_denied"); return reply.code(401).send({error:"UNAUTHORIZED",reason:check.reason}); }
   }
 
-  app.get("/v1/health",async()=>({status:"ok",service:"agent-core",version:"0.7.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),auth_required:config.authRequired}));
+  app.get("/v1/health",async()=>{
+    const groq=groqRuntimeDefaults(config);
+    return {status:"ok",service:"agent-core",version:"0.7.0",api_versions:["v1","v2"],jev_model:config.jevModel,provider_configured:Boolean(config.openRouterApiKey),groq_inference_enabled:groq.groqEnabled && Boolean(config.groqApiKey),groq_model:groq.groqModel,groq_fallback_openrouter:groq.groqFallbackOpenRouter,auth_required:config.authRequired};
+  });
 
   async function handleDecision(request:FastifyRequest,reply:FastifyReply){
     const parsed=decisionRequestSchema.safeParse(request.body);
@@ -230,6 +239,72 @@ export function buildApp(deps:AppDependencies={}) {
     metrics.observeLatency(Date.now()-started);
     await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"KNOWLEDGE_QUERY",result:result.disposition,task_id:parsed.data.task_id,latency_ms:Date.now()-started,fallback:false});
     return result;
+  });
+
+  app.get("/v2/inference/budget",{preHandler:guard("inference")},async(request,reply)=>{
+    try{
+      return await inference.budgetStatus();
+    }catch(error){
+      if(error instanceof InferencePilotBlockedError){
+        return reply.code(503).send({error:"GROQ_PILOT_BLOCKED",message:error.message});
+      }
+      throw error;
+    }
+  });
+
+  app.post("/v2/inference/complete",{preHandler:guard("inference")},async(request,reply)=>{
+    const parsed=inferenceCompleteRequestSchema.safeParse(request.body);
+    if(!parsed.success)return reply.code(400).send({error:"INVALID_REQUEST",details:parsed.error.flatten()});
+    if(request.projectIdentity && request.projectIdentity.project!==parsed.data.project)return reply.code(403).send({error:"PROJECT_MISMATCH"});
+    const started=Date.now();
+    try{
+      const result=inferenceCompleteResponseSchema.parse(await inference.complete(parsed.data));
+      const latency=Date.now()-started;
+      metrics.increment("inference_requests");
+      metrics.increment(`inference_provider_${result.provider}`);
+      if(result.fallback)metrics.increment("inference_fallbacks");
+      metrics.observeLatency(latency);
+      await audit.write({
+        timestamp:new Date().toISOString(),
+        project:parsed.data.project,
+        route:request.url,
+        action:"INFERENCE_COMPLETE",
+        result:result.provider,
+        task_id:parsed.data.task_id,
+        fallback:result.fallback,
+        latency_ms:latency,
+        provider_request_id:result.provider_request_id,
+        inference_provider:result.provider,
+        inference_model:result.model,
+        prompt_tokens:result.usage.prompt_tokens,
+        completion_tokens:result.usage.completion_tokens,
+        estimated_cost_usd:result.estimated_cost_usd
+      });
+      return result;
+    }catch(error){
+      metrics.increment("inference_errors");
+      if(error instanceof InferenceBudgetExceededError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"BUDGET_EXCEEDED",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(402).send({error:"INFERENCE_BUDGET_EXCEEDED",budget_usd:error.budgetUsd,spent_usd:error.ledger.spent_usd,month:error.ledger.month});
+      }
+      if(error instanceof InferenceUnavailableError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"UNAVAILABLE",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(503).send({error:"INFERENCE_UNAVAILABLE",message:error.message});
+      }
+      if(error instanceof InferencePilotBlockedError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"PILOT_BLOCKED",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(503).send({error:"GROQ_PILOT_BLOCKED",message:error.message});
+      }
+      if(error instanceof InferenceLedgerCorruptError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"LEDGER_CORRUPT",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(503).send({error:"INFERENCE_LEDGER_UNAVAILABLE",message:error.message});
+      }
+      if(error instanceof InferenceUsageAmbiguousError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"USAGE_AMBIGUOUS",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(503).send({error:"INFERENCE_USAGE_AMBIGUOUS",message:error.message});
+      }
+      throw error;
+    }
   });
 
   app.post("/v2/rea/route",{preHandler:guard("route")},async(request,reply)=>{

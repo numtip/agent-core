@@ -1,7 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { groqRuntimeDefaults, type RuntimeConfig } from "../config.js";
 import type { ChatCompletionUsage } from "../providers/openai-chat.js";
+import {
+  atomicWriteLedger,
+  emptyCostLedger,
+  InferenceLedgerCorruptError,
+  readLedgerFile
+} from "./ledger-io.js";
 import { withLedgerFileLock } from "./ledger-lock.js";
 
 export type CostLedger = {
@@ -11,6 +15,8 @@ export type CostLedger = {
   requests: number;
   tokens: { prompt: number; completion: number; total: number };
 };
+
+export { InferenceLedgerCorruptError };
 
 export class InferenceBudgetExceededError extends Error {
   constructor(
@@ -27,16 +33,6 @@ function currentMonthKey(now = new Date()): string {
   const y = now.getUTCFullYear();
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
-}
-
-function emptyLedger(month: string): CostLedger {
-  return {
-    month,
-    spent_usd: 0,
-    reserved_usd: 0,
-    requests: 0,
-    tokens: { prompt: 0, completion: 0, total: 0 }
-  };
 }
 
 export class InferenceCostGuard {
@@ -60,6 +56,10 @@ export class InferenceCostGuard {
     return this.config.groqLedgerLockTimeoutMs ?? 5000;
   }
 
+  private staleLockMs(): number {
+    return this.config.groqLedgerStaleLockMs ?? 120_000;
+  }
+
   private async withProcessLock<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.processLock.then(fn, fn);
     this.processLock = run.then(
@@ -69,45 +69,59 @@ export class InferenceCostGuard {
     return run;
   }
 
+  private ledgerPath(): string | null {
+    return this.groq.groqCostLedgerPath;
+  }
+
+  private async loadLedgerForMutation(now: Date): Promise<CostLedger> {
+    const path = this.ledgerPath();
+    const month = currentMonthKey(now);
+    if (!path) return emptyCostLedger(month);
+
+    const { ledger } = await readLedgerFile(path, {
+      expectedMonth: month,
+      allowInitialize: true
+    });
+    return ledger;
+  }
+
+  private async persistLedger(ledger: CostLedger): Promise<void> {
+    const path = this.ledgerPath();
+    if (!path) return;
+    await atomicWriteLedger(path, ledger);
+  }
+
   private async mutateLedger<T>(
-    mutate: (ledger: CostLedger) => { ledger: CostLedger; result: T }
+    mutate: (ledger: CostLedger) => { ledger: CostLedger; result: T },
+    now = new Date()
   ): Promise<T> {
     this.assertLedgerConfigured();
     const path = this.ledgerPath();
     return this.withProcessLock(async () =>
-      withLedgerFileLock(path, this.lockTimeoutMs(), async () => {
-        const now = new Date();
-        const ledger = await this.readLedger(now);
-        const { ledger: next, result } = mutate(ledger);
-        if (path) {
-          await mkdir(dirname(path), { recursive: true });
-          await writeFile(path, JSON.stringify(next, null, 2) + "\n", "utf8");
-        }
-        return result;
-      })
+      withLedgerFileLock(
+        path,
+        this.lockTimeoutMs(),
+        async () => {
+          const ledger = await this.loadLedgerForMutation(now);
+          const { ledger: next, result } = mutate(ledger);
+          await this.persistLedger(next);
+          return result;
+        },
+        this.staleLockMs()
+      )
     );
-  }
-
-  private ledgerPath(): string | null {
-    return this.groq.groqCostLedgerPath;
   }
 
   async readLedger(now = new Date()): Promise<CostLedger> {
     const month = currentMonthKey(now);
     const path = this.ledgerPath();
-    if (!path) return emptyLedger(month);
+    if (!path) return emptyCostLedger(month);
 
-    try {
-      const raw = JSON.parse(await readFile(path, "utf8")) as CostLedger;
-      if (raw.month !== month) return emptyLedger(month);
-      return {
-        ...emptyLedger(month),
-        ...raw,
-        reserved_usd: raw.reserved_usd ?? 0
-      };
-    } catch {
-      return emptyLedger(month);
-    }
+    const { ledger } = await readLedgerFile(path, {
+      expectedMonth: month,
+      allowInitialize: true
+    });
+    return ledger;
   }
 
   private projectedSpend(ledger: CostLedger): number {
@@ -126,10 +140,13 @@ export class InferenceCostGuard {
         );
       }
       return {
-        ledger: { ...ledger, reserved_usd: Number((ledger.reserved_usd + reserveUsd).toFixed(8)) },
+        ledger: {
+          ...ledger,
+          reserved_usd: Number((ledger.reserved_usd + reserveUsd).toFixed(8))
+        },
         result: undefined
       };
-    });
+    }, now);
   }
 
   async settleReservation(
@@ -138,6 +155,9 @@ export class InferenceCostGuard {
     usage: ChatCompletionUsage,
     now = new Date()
   ): Promise<CostLedger> {
+    if (!Number.isFinite(actualUsd) || actualUsd < 0) {
+      throw new InferenceLedgerCorruptError("Cannot settle reservation with invalid cost");
+    }
     return this.mutateLedger((ledger) => {
       const reserved = Math.max(0, ledger.reserved_usd - reserveUsd);
       const next: CostLedger = {
@@ -152,10 +172,10 @@ export class InferenceCostGuard {
         }
       };
       return { ledger: next, result: next };
-    });
+    }, now);
   }
 
-  async releaseReservation(reserveUsd: number): Promise<void> {
+  async releaseReservation(reserveUsd: number, now = new Date()): Promise<void> {
     if (reserveUsd <= 0) return;
     await this.mutateLedger((ledger) => ({
       ledger: {
@@ -163,7 +183,7 @@ export class InferenceCostGuard {
         reserved_usd: Number(Math.max(0, ledger.reserved_usd - reserveUsd).toFixed(8))
       },
       result: undefined
-    }));
+    }), now);
   }
 
   budgetRemainingUsd(ledger: CostLedger): number {

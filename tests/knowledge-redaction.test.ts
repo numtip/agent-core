@@ -29,4 +29,11 @@ describe("knowledge redaction", () => {
     expect(result.provenance[0]?.redacted).toBe(true);
     expect(result.context.bundle[0]?.text).toContain("[REDACTED:bearer]");
   });
+
+  it("redacts Groq-style key patterns in knowledge text", () => {
+    const redaction = redactKnowledgeText("leaked gsk_SampleKeyPatternForTestOnly");
+    expect(redaction.redacted).toBe(true);
+    expect(redaction.reasons).toContain("groq_key");
+    expect(redaction.text).toContain("[REDACTED:groq_key]");
+  });
 });

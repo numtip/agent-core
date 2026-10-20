@@ -1,5 +1,13 @@
 import { groqRuntimeDefaults, type RuntimeConfig } from "../config.js";
-import { InferenceBudgetExceededError, InferenceCostGuard } from "../inference/cost-guard.js";
+import {
+  InferenceBudgetExceededError,
+  InferenceCostGuard,
+  InferenceLedgerCorruptError
+} from "../inference/cost-guard.js";
+import {
+  assertProviderUsage,
+  InferenceUsageAmbiguousError
+} from "../inference/usage-validation.js";
 import { isGroqPilotRouteAllowed, groqPilotBlockReason } from "../inference/pilot-guard.js";
 import { estimatePromptTokens } from "../inference/prompt-estimate.js";
 import { estimateUsageCostUsd } from "../inference/pricing.js";
@@ -107,6 +115,13 @@ export class InferenceService {
           error && typeof error === "object" && "status" in error
             ? Number((error as { status?: number }).status)
             : undefined;
+        if (
+          error instanceof InferenceUsageAmbiguousError ||
+          error instanceof InferenceLedgerCorruptError ||
+          error instanceof InferenceBudgetExceededError
+        ) {
+          throw error;
+        }
         const retryable =
           error instanceof Error &&
           (error.name === "AbortError" || isRetryableHttpStatus(status));
@@ -159,7 +174,13 @@ export class InferenceService {
             !this.groqDefaults.groqFallbackOpenRouter ||
             !this.openRouter.configured()
           ) {
-            if (error instanceof InferenceBudgetExceededError) throw error;
+            if (
+              error instanceof InferenceBudgetExceededError ||
+              error instanceof InferenceUsageAmbiguousError ||
+              error instanceof InferenceLedgerCorruptError
+            ) {
+              throw error;
+            }
             throw new InferenceUnavailableError("Groq inference failed", error);
           }
         }
@@ -177,7 +198,9 @@ export class InferenceService {
         throw new InferenceUnavailableError("Inference failed for all providers");
       }
 
-      const costUsd = estimateUsageCostUsd(this.config, result.usage, result.provider);
+      const usage = assertProviderUsage(result.usage, result.provider);
+      result = { ...result, usage };
+      const costUsd = estimateUsageCostUsd(this.config, usage, result.provider);
       const ledgerAfter = await this.costGuard.settleReservation(
         reserveUsd,
         costUsd,

@@ -25,6 +25,7 @@ export type RuntimeConfig = {
   openRouterUsdPer1MInputTokens?: number;
   openRouterUsdPer1MOutputTokens?: number;
   groqLedgerLockTimeoutMs?: number;
+  groqLedgerStaleLockMs?: number;
 };
 
 export function groqRuntimeDefaults(config: RuntimeConfig): Required<
@@ -112,6 +113,7 @@ export function loadConfig(): RuntimeConfig {
     openRouterChatModel:process.env.OPENROUTER_CHAT_MODEL ?? "openai/gpt-oss-120b",
     openRouterUsdPer1MInputTokens:numberFromEnv("OPENROUTER_USD_PER_1M_INPUT_TOKENS",0.15),
     openRouterUsdPer1MOutputTokens:numberFromEnv("OPENROUTER_USD_PER_1M_OUTPUT_TOKENS",0.60),
-    groqLedgerLockTimeoutMs:numberFromEnv("GROQ_LEDGER_LOCK_TIMEOUT_MS",5000)
+    groqLedgerLockTimeoutMs:numberFromEnv("GROQ_LEDGER_LOCK_TIMEOUT_MS",5000),
+    groqLedgerStaleLockMs:numberFromEnv("GROQ_LEDGER_STALE_LOCK_MS",120000)
   };
 }

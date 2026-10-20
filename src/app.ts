@@ -23,7 +23,8 @@ import { DisabledMcpClient, McpUnavailableError, newReceiptId, PlaywrightMcpClie
 import { reaLocalRouteRequestSchema } from "./rea-local/schemas.js";
 import { routeReaLocalHandoff } from "./rea-local/route.js";
 import { inferenceCompleteRequestSchema, inferenceCompleteResponseSchema } from "./inference/schemas.js";
-import { InferenceBudgetExceededError } from "./inference/cost-guard.js";
+import { InferenceBudgetExceededError, InferenceLedgerCorruptError } from "./inference/cost-guard.js";
+import { InferenceUsageAmbiguousError } from "./inference/usage-validation.js";
 import { InferencePilotBlockedError, InferenceService, InferenceUnavailableError } from "./services/inference.js";
 import { z } from "zod";
 
@@ -249,6 +250,14 @@ export function buildApp(deps:AppDependencies={}) {
       if(error instanceof InferencePilotBlockedError){
         await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"PILOT_BLOCKED",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
         return reply.code(503).send({error:"GROQ_PILOT_BLOCKED",message:error.message});
+      }
+      if(error instanceof InferenceLedgerCorruptError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"LEDGER_CORRUPT",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(503).send({error:"INFERENCE_LEDGER_UNAVAILABLE",message:error.message});
+      }
+      if(error instanceof InferenceUsageAmbiguousError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"USAGE_AMBIGUOUS",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(503).send({error:"INFERENCE_USAGE_AMBIGUOUS",message:error.message});
       }
       throw error;
     }

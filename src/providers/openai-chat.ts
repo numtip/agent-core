@@ -1,4 +1,5 @@
 import { groqRuntimeDefaults, type RuntimeConfig } from "../config.js";
+import { assertProviderUsage } from "../inference/usage-validation.js";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -94,12 +95,17 @@ async function postChatCompletion(input: {
       throw new Error(`${input.provider} chat completion returned empty content`);
     }
 
+    const usage = assertProviderUsage(
+      usageFromPayload(payload.usage),
+      input.provider
+    );
+
     return {
       content,
       model: typeof payload.model === "string" ? payload.model : input.model,
       provider: input.provider,
       providerRequestId: typeof payload.id === "string" ? payload.id : null,
-      usage: usageFromPayload(payload.usage)
+      usage
     };
   } finally {
     clearTimeout(timer);

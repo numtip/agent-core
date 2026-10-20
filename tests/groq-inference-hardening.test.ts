@@ -309,6 +309,136 @@ describe("Groq inference hardening", () => {
     expect(() => guard.assertLedgerConfigured()).toThrow(/GROQ_COST_LEDGER/);
   });
 
+  it("returns GET /v2/inference/budget for authorized project", async () => {
+    const config = testRuntimeConfig({
+      env: "test",
+      host: "127.0.0.1",
+      port: 8787,
+      openRouterDecisionsUrl: "https://example.invalid",
+      jevModel: "~typesafe/jev-latest",
+      requestTimeoutMs: 1000,
+      confidenceExecute: 0.85,
+      confidenceReview: 0.6,
+      authRequired: true,
+      projectKeys: { "agent-core": "local-token" },
+      projectScopes: { "agent-core": ["inference"] },
+      rateLimitMax: 100,
+      rateLimitWindowMs: 60000,
+      auditLogPath: null,
+      playwrightMcpExecutionEnabled: false,
+      playwrightMcpEndpoint: "http://127.0.0.1:8791/mcp",
+      playwrightMcpTimeoutMs: 5000,
+      groqEnabled: true,
+      groqApiKey: "gsk-test",
+      groqCostLedgerPath: null
+    });
+    const app = buildApp({ config });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/inference/budget",
+      headers: {
+        "x-agent-project": "agent-core",
+        "x-agent-project-token": "local-token"
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cost_basis).toBe("estimate_from_provider_usage");
+    expect(response.json().pilot_activation).toBe("dev-only");
+    await app.close();
+  });
+
+  it("returns HTTP 402 when monthly budget would be exceeded", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "groq-402-"));
+    const ledgerPath = join(dir, "ledger.json");
+    const config = testRuntimeConfig({
+      env: "test",
+      host: "127.0.0.1",
+      port: 8787,
+      openRouterDecisionsUrl: "https://example.invalid",
+      jevModel: "~typesafe/jev-latest",
+      requestTimeoutMs: 1000,
+      confidenceExecute: 0.85,
+      confidenceReview: 0.6,
+      authRequired: true,
+      projectKeys: { "agent-core": "local-token" },
+      projectScopes: { "agent-core": ["inference"] },
+      rateLimitMax: 100,
+      rateLimitWindowMs: 60000,
+      auditLogPath: null,
+      playwrightMcpExecutionEnabled: false,
+      playwrightMcpEndpoint: "http://127.0.0.1:8791/mcp",
+      playwrightMcpTimeoutMs: 5000,
+      groqEnabled: true,
+      groqApiKey: "gsk-test",
+      groqMonthlyBudgetUsd: 0.000001,
+      groqCostLedgerPath: ledgerPath,
+      groqUsdPer1MInputTokens: 1,
+      groqUsdPer1MOutputTokens: 1,
+      groqFallbackOpenRouter: false
+    });
+    const inference = new InferenceService(config, {
+      fetchImpl: async () => okGroqResponse()
+    });
+    const app = buildApp({ config, inference });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v2/inference/complete",
+      headers: {
+        "x-agent-project": "agent-core",
+        "x-agent-project-token": "local-token"
+      },
+      payload: {
+        project: "agent-core",
+        messages: [{ role: "user", content: "x".repeat(8000) }],
+        max_tokens: 512
+      }
+    });
+    expect(response.statusCode).toBe(402);
+    expect(response.json().error).toBe("INFERENCE_BUDGET_EXCEEDED");
+    await app.close();
+  });
+
+  it("maps Groq reasoning when message content is empty", async () => {
+    const config = testRuntimeConfig({
+      env: "test",
+      host: "127.0.0.1",
+      port: 8787,
+      openRouterDecisionsUrl: "https://example.invalid",
+      jevModel: "~typesafe/jev-latest",
+      requestTimeoutMs: 1000,
+      confidenceExecute: 0.85,
+      confidenceReview: 0.6,
+      authRequired: false,
+      projectKeys: {},
+      projectScopes: {},
+      rateLimitMax: 100,
+      rateLimitWindowMs: 60000,
+      auditLogPath: null,
+      playwrightMcpExecutionEnabled: false,
+      playwrightMcpEndpoint: "http://127.0.0.1:8791/mcp",
+      playwrightMcpTimeoutMs: 5000,
+      groqEnabled: true,
+      groqApiKey: "gsk-test",
+      groqFallbackOpenRouter: false,
+      groqCostLedgerPath: null
+    });
+    const inference = new InferenceService(config, {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "", reasoning: "REASON_OK" } }],
+            usage: { prompt_tokens: 12, completion_tokens: 6, total_tokens: 18 }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    });
+    const result = await inference.complete({
+      project: "agent-core",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    expect(result.content).toBe("REASON_OK");
+  });
+
   it("blocks when GROQ_PILOT_ACTIVATION=blocked", async () => {
     const previous = process.env.GROQ_PILOT_ACTIVATION;
     process.env.GROQ_PILOT_ACTIVATION = "blocked";

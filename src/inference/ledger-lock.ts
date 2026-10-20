@@ -1,4 +1,4 @@
-import { open, unlink } from "node:fs/promises";
+import { open, stat, unlink } from "node:fs/promises";
 import { sleep } from "../providers/openai-chat.js";
 
 export class LedgerLockTimeoutError extends Error {
@@ -8,10 +8,26 @@ export class LedgerLockTimeoutError extends Error {
   }
 }
 
-/** Cross-process exclusive lock via O_EXCL create (best-effort; DEV pilot). */
+const DEFAULT_STALE_LOCK_MS = 120_000;
+
+async function reclaimStaleLock(lockPath: string, staleMs: number): Promise<boolean> {
+  try {
+    const info = await stat(lockPath);
+    if (Date.now() - info.mtimeMs > staleMs) {
+      await unlink(lockPath).catch(() => undefined);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/** Cross-process exclusive lock via O_EXCL create (DEV pilot; stale lock reclaim). */
 export async function acquireLedgerFileLock(
   ledgerPath: string,
-  timeoutMs: number
+  timeoutMs: number,
+  staleLockMs = DEFAULT_STALE_LOCK_MS
 ): Promise<() => Promise<void>> {
   const lockPath = `${ledgerPath}.lock`;
   const started = Date.now();
@@ -29,6 +45,7 @@ export async function acquireLedgerFileLock(
           ? String((error as { code?: string }).code)
           : "";
       if (code !== "EEXIST") throw error;
+      await reclaimStaleLock(lockPath, staleLockMs);
       await sleep(25);
     }
   }
@@ -39,10 +56,11 @@ export async function acquireLedgerFileLock(
 export async function withLedgerFileLock<T>(
   ledgerPath: string | null,
   timeoutMs: number,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  staleLockMs = DEFAULT_STALE_LOCK_MS
 ): Promise<T> {
   if (!ledgerPath) return fn();
-  const release = await acquireLedgerFileLock(ledgerPath, timeoutMs);
+  const release = await acquireLedgerFileLock(ledgerPath, timeoutMs, staleLockMs);
   try {
     return await fn();
   } finally {

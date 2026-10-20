@@ -9,7 +9,63 @@ export type RuntimeConfig = {
   reaWorkspaceRoots?: string[];
   reaPackageVersion?: string;
   reaAllowlistProfile?: "v1" | "v2";
+  groqEnabled?: boolean;
+  groqApiKey?: string;
+  groqBaseUrl?: string;
+  groqModel?: string;
+  groqTimeoutMs?: number;
+  groqMaxRetries?: number;
+  groqMonthlyBudgetUsd?: number;
+  groqCostLedgerPath?: string | null;
+  groqUsdPer1MInputTokens?: number;
+  groqUsdPer1MOutputTokens?: number;
+  groqFallbackOpenRouter?: boolean;
+  openRouterChatUrl?: string;
+  openRouterChatModel?: string;
+  openRouterUsdPer1MInputTokens?: number;
+  openRouterUsdPer1MOutputTokens?: number;
+  groqLedgerLockTimeoutMs?: number;
 };
+
+export function groqRuntimeDefaults(config: RuntimeConfig): Required<
+  Pick<
+    RuntimeConfig,
+    | "groqEnabled"
+    | "groqBaseUrl"
+    | "groqModel"
+    | "groqTimeoutMs"
+    | "groqMaxRetries"
+    | "groqMonthlyBudgetUsd"
+    | "groqCostLedgerPath"
+    | "groqUsdPer1MInputTokens"
+    | "groqUsdPer1MOutputTokens"
+    | "groqFallbackOpenRouter"
+    | "openRouterChatUrl"
+    | "openRouterChatModel"
+  >
+> {
+  const env = config.env ?? "development";
+  return {
+    groqEnabled: config.groqEnabled ?? Boolean(config.groqApiKey),
+    groqBaseUrl: config.groqBaseUrl ?? "https://api.groq.com/openai/v1",
+    groqModel: config.groqModel ?? "openai/gpt-oss-120b",
+    groqTimeoutMs: config.groqTimeoutMs ?? 15000,
+    groqMaxRetries: config.groqMaxRetries ?? 2,
+    groqMonthlyBudgetUsd: config.groqMonthlyBudgetUsd ?? 10,
+    groqCostLedgerPath:
+      config.groqCostLedgerPath !== undefined
+        ? config.groqCostLedgerPath
+        : env === "test"
+          ? null
+          : "./logs/groq-cost-ledger.json",
+    groqUsdPer1MInputTokens: config.groqUsdPer1MInputTokens ?? 0.15,
+    groqUsdPer1MOutputTokens: config.groqUsdPer1MOutputTokens ?? 0.6,
+    groqFallbackOpenRouter: config.groqFallbackOpenRouter ?? true,
+    openRouterChatUrl:
+      config.openRouterChatUrl ?? "https://openrouter.ai/api/v1/chat/completions",
+    openRouterChatModel: config.openRouterChatModel ?? "openai/gpt-oss-120b"
+  };
+}
 
 function numberFromEnv(name:string,fallback:number){ const raw=process.env[name]; if(!raw)return fallback; const v=Number(raw); if(!Number.isFinite(v))throw new Error(name+" must be a number"); return v; }
 function boolFromEnv(name:string,fallback:boolean){ const raw=process.env[name]; if(raw==null)return fallback; return ["1","true","yes","on"].includes(raw.toLowerCase()); }
@@ -40,6 +96,22 @@ export function loadConfig(): RuntimeConfig {
     reaLocalHandoffEnabled:boolFromEnv("REA_LOCAL_HANDOFF_ENABLED",false),
     reaWorkspaceRoots:jsonObject<string[]>("REA_WORKSPACE_ROOTS",[]),
     reaPackageVersion:process.env.REA_PACKAGE_VERSION ?? "6.4.0",
-    reaAllowlistProfile:(process.env.REA_ALLOWLIST_PROFILE === "v2" ? "v2" : "v1")
+    reaAllowlistProfile:(process.env.REA_ALLOWLIST_PROFILE === "v2" ? "v2" : "v1"),
+    groqEnabled:boolFromEnv("GROQ_ENABLED",Boolean(process.env.GROQ_API_KEY)),
+    groqApiKey:process.env.GROQ_API_KEY,
+    groqBaseUrl:process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1",
+    groqModel:process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
+    groqTimeoutMs:numberFromEnv("GROQ_TIMEOUT_MS",15000),
+    groqMaxRetries:numberFromEnv("GROQ_MAX_RETRIES",2),
+    groqMonthlyBudgetUsd:numberFromEnv("GROQ_MONTHLY_BUDGET_USD",10),
+    groqCostLedgerPath:process.env.GROQ_COST_LEDGER ?? (env==="test" ? null : "./logs/groq-cost-ledger.json"),
+    groqUsdPer1MInputTokens:numberFromEnv("GROQ_USD_PER_1M_INPUT_TOKENS",0.15),
+    groqUsdPer1MOutputTokens:numberFromEnv("GROQ_USD_PER_1M_OUTPUT_TOKENS",0.60),
+    groqFallbackOpenRouter:boolFromEnv("GROQ_FALLBACK_OPENROUTER",true),
+    openRouterChatUrl:process.env.OPENROUTER_CHAT_URL ?? "https://openrouter.ai/api/v1/chat/completions",
+    openRouterChatModel:process.env.OPENROUTER_CHAT_MODEL ?? "openai/gpt-oss-120b",
+    openRouterUsdPer1MInputTokens:numberFromEnv("OPENROUTER_USD_PER_1M_INPUT_TOKENS",0.15),
+    openRouterUsdPer1MOutputTokens:numberFromEnv("OPENROUTER_USD_PER_1M_OUTPUT_TOKENS",0.60),
+    groqLedgerLockTimeoutMs:numberFromEnv("GROQ_LEDGER_LOCK_TIMEOUT_MS",5000)
   };
 }

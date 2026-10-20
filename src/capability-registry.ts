@@ -65,6 +65,27 @@ const defaultCapabilities: Capability[] = [
     metadata: { provider_routed: true }
   },
   {
+    id: "model.groq",
+    kind: "MODEL",
+    description: "Optional Groq-hosted OpenAI-compatible chat inference with cost guard and OpenRouter fallback.",
+    tags: ["groq", "inference", "chat", "cost-guard"],
+    operations: ["READ"],
+    projects: ["agent-core"],
+    risk: "MEDIUM",
+    status: "PLANNED",
+    priority: 72,
+    metadata: {
+      route: "/v2/inference/complete",
+      scope: "inference",
+      default_model: "openai/gpt-oss-120b",
+      fallback: "openrouter_chat",
+      monthly_budget_usd: 10,
+      pilot: true,
+      vps_activation: "BLOCKED",
+      multi_instance_budget: "NOT_GUARANTEED"
+    }
+  },
+  {
     id: "agent.cursor",
     kind: "AGENT",
     description: "Cursor coding agent for repository-local implementation and refactoring workflows.",

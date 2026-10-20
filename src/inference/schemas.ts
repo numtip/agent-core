@@ -33,7 +33,8 @@ export const inferenceCompleteResponseSchema = z.object({
     month: z.string(),
     spent_usd: z.number().nonnegative(),
     remaining_usd: z.number().nonnegative(),
-    budget_usd: z.number().nonnegative()
+    budget_usd: z.number().nonnegative(),
+    overspend_blocked: z.boolean()
   }),
   provider_request_id: z.string().nullable(),
   attempts: z.number().int().positive(),

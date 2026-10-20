@@ -71,9 +71,10 @@ Use these terms in docs and runbooks:
 | **ACTIVATED** | Live credentials, scopes, and endpoints in use |
 | **VERIFIED** | Fresh QA or audit evidence for the claimed SHA/runtime |
 
-**Source (GitHub `main`):** implementation through **V2-9 Knowledge Fabric** (package `0.7.0` as of PR #19).  
-**Production:** edge health reported **`0.7.0`** on 2026-10-13 audit; last full live QA pack remains pinned to release **`4246c0a`** (see [docs/STATUS.md](docs/STATUS.md)).  
-**Not activated by default:** OpenWiki transport, `rae-attendance-v2` machine identity, observation/memory sync.
+**Source (GitHub `main`):** package `0.7.0`, plus commits after the deployed SHA (knowledge observation/memory and local REA handoff routing).  
+**Production (verified 2026-10-13 on the VPS):** release `dbe20a5`, package `0.7.0`, **8** capabilities, **6** project identities. Rollback directory `01092e2`. Details in [docs/STATUS.md](docs/STATUS.md).  
+**Activated:** `rae-attendance-v2` with scope `decision` only.  
+**Not deployed:** observation/memory capabilities, `mcp.rea`, `POST /v2/rea/route`. OpenWiki live transport is not activated.
 
 See:
 - [docs/STATUS.md](docs/STATUS.md) — authoritative platform matrix

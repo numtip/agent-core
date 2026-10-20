@@ -52,12 +52,19 @@ export function parseCostLedger(raw: unknown, expectedMonth: string): CostLedger
   if (spent < 0 || reserved < 0 || requests < 0 || prompt < 0 || completion < 0 || total < 0) {
     throw new InferenceLedgerCorruptError("Ledger contains negative values");
   }
+  if (
+    raw.overspend_blocked !== undefined &&
+    typeof raw.overspend_blocked !== "boolean"
+  ) {
+    throw new InferenceLedgerCorruptError("Ledger overspend flag is invalid");
+  }
   return {
     month,
     spent_usd: spent,
     reserved_usd: reserved,
     requests,
-    tokens: { prompt, completion, total }
+    tokens: { prompt, completion, total },
+    overspend_blocked: raw.overspend_blocked === true
   };
 }
 
@@ -67,7 +74,8 @@ export function emptyCostLedger(month: string): CostLedger {
     spent_usd: 0,
     reserved_usd: 0,
     requests: 0,
-    tokens: { prompt: 0, completion: 0, total: 0 }
+    tokens: { prompt: 0, completion: 0, total: 0 },
+    overspend_blocked: false
   };
 }
 

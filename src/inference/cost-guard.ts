@@ -14,6 +14,8 @@ export type CostLedger = {
   reserved_usd: number;
   requests: number;
   tokens: { prompt: number; completion: number; total: number };
+  /** Set when recorded spend exceeds the monthly cap. Further reserves are refused. */
+  overspend_blocked: boolean;
 };
 
 export { InferenceLedgerCorruptError };
@@ -131,6 +133,13 @@ export class InferenceCostGuard {
   async reserveBudget(reserveUsd: number, now = new Date()): Promise<void> {
     if (reserveUsd <= 0) return;
     await this.mutateLedger((ledger) => {
+      if (ledger.overspend_blocked) {
+        throw new InferenceBudgetExceededError(
+          "Groq inference is blocked after a recorded budget overspend",
+          ledger,
+          this.groq.groqMonthlyBudgetUsd
+        );
+      }
       const projected = this.projectedSpend(ledger) + reserveUsd;
       if (projected > this.groq.groqMonthlyBudgetUsd) {
         throw new InferenceBudgetExceededError(
@@ -160,16 +169,19 @@ export class InferenceCostGuard {
     }
     return this.mutateLedger((ledger) => {
       const reserved = Math.max(0, ledger.reserved_usd - reserveUsd);
+      const spent = Number((ledger.spent_usd + actualUsd).toFixed(8));
       const next: CostLedger = {
         month: ledger.month,
-        spent_usd: Number((ledger.spent_usd + actualUsd).toFixed(8)),
+        spent_usd: spent,
         reserved_usd: Number(reserved.toFixed(8)),
         requests: ledger.requests + 1,
         tokens: {
           prompt: ledger.tokens.prompt + usage.prompt_tokens,
           completion: ledger.tokens.completion + usage.completion_tokens,
           total: ledger.tokens.total + usage.total_tokens
-        }
+        },
+        overspend_blocked:
+          ledger.overspend_blocked || spent + reserved > this.groq.groqMonthlyBudgetUsd
       };
       return { ledger: next, result: next };
     }, now);

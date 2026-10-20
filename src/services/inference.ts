@@ -9,7 +9,7 @@ import {
   InferenceUsageAmbiguousError
 } from "../inference/usage-validation.js";
 import { isGroqPilotRouteAllowed, groqPilotBlockReason } from "../inference/pilot-guard.js";
-import { estimatePromptTokens } from "../inference/prompt-estimate.js";
+import { capCompletionTokens, estimatePromptTokens } from "../inference/prompt-estimate.js";
 import { estimateUsageCostUsd } from "../inference/pricing.js";
 import type { InferenceCompleteRequest, InferenceCompleteResponse } from "../inference/schemas.js";
 import {
@@ -76,14 +76,22 @@ export class InferenceService {
       tokens: ledger.tokens,
       groq_enabled: this.groq.configured(),
       openrouter_fallback_configured: this.openRouter.configured(),
+      overspend_blocked: ledger.overspend_blocked,
       cost_basis: "estimate_from_provider_usage" as const,
       pilot_activation: isGroqPilotRouteAllowed(this.config) ? "dev-only" : "blocked"
     };
   }
 
+  private completionCap(request: InferenceCompleteRequest): number {
+    return capCompletionTokens(
+      request.max_tokens,
+      this.config.groqMaxCompletionTokens ?? 1024
+    );
+  }
+
   private reserveUsdForRequest(request: InferenceCompleteRequest): number {
     const promptTokens = estimatePromptTokens(request);
-    const completionTokens = request.max_tokens ?? 512;
+    const completionTokens = this.completionCap(request);
     const usage = {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
@@ -140,9 +148,10 @@ export class InferenceService {
       throw new InferenceUnavailableError("No inference provider is configured");
     }
 
+    const maxTokens = this.completionCap(request);
     const body = {
       messages: request.messages,
-      max_tokens: request.max_tokens,
+      max_tokens: maxTokens,
       temperature: request.temperature
     };
 
@@ -220,7 +229,8 @@ export class InferenceService {
           month: ledgerAfter.month,
           spent_usd: ledgerAfter.spent_usd,
           remaining_usd: this.costGuard.budgetRemainingUsd(ledgerAfter),
-          budget_usd: this.groqDefaults.groqMonthlyBudgetUsd
+          budget_usd: this.groqDefaults.groqMonthlyBudgetUsd,
+          overspend_blocked: ledgerAfter.overspend_blocked
         },
         provider_request_id: result.providerRequestId,
         attempts,

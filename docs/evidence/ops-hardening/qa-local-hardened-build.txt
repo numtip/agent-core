@@ -1,0 +1,31 @@
+== 1. health (unauthenticated) ==
+[PASS] health 200 — http=200
+[PASS] health payload — {"status": "ok", "service": "agent-core", "version": "0.7.0", "auth_required": true, "provider_configured": false, "jev_model": "~typesafe/jev-latest"}
+== 2. listening socket ==
+[PASS] bound to 127.0.0.1:18087 only — LISTEN 0      511        127.0.0.1:18087      0.0.0.0:*    users:(("node",pid=74132,fd=21))
+== 3. authz ==
+[PASS] unauthenticated protected request -> 401 — http=401
+[PASS] invalid token -> 401 — http=401
+[PASS] cross-project body/header mismatch -> 403 — http=403 {"error":"PROJECT_MISMATCH"}
+[PASS] wrong scope (dbplant -> qa) -> 403 — http=403 {"error":"FORBIDDEN","scope":"qa"}
+== 4. provider/fallback behaviour ==
+[PASS] provider unavailable + fallback_result -> safe FALLBACK — http=200 result=HUMAN_REVIEW reason=PROVIDER_UNAVAILABLE disposition=FALLBACK
+[PASS] provider unavailable + no fallback -> 503 DECISION_UNAVAILABLE — http=503 {"error":"DECISION_UNAVAILABLE","message":"No safe decision is available and no 
+== 5. deterministic endpoints ==
+[PASS] /v1/context with context scope -> 200 — http=200 {"query":"handbook deployment runbook","selected":[{"id":"a","path":"docs/deploy
+[PASS] /v1/projects with metrics scope -> 200 — http=200
+[PASS] /v1/projects without metrics scope -> 403 — http=403 {"error":"FORBIDDEN","scope":"metrics"}
+== 6. rate limit (max=None window=Nonems) ==
+[PASS] rate limit -> 429 RATE_LIMITED after threshold — 429_count=105 last_http=429 requests=105
+== 7. audit log ==
+[PASS] audit log present — <tmp-home>/logs/audit.jsonl events=2 corrupt_lines=0
+[PASS] audit event has required fields — missing=[]
+[PASS] audit contains no project tokens — leaked_projects=[]
+[PASS] audit contains no OpenRouter key — scanned
+[PASS] audit contains no Authorization header — scanned
+== 8. control center at origin ==
+[PASS] /control without Access assertion fails closed at origin — http=503
+[PASS] /v1/control-metrics without Access assertion fails closed — http=503
+[PASS] /v1/control-metrics with invalid project token -> 401 — http=401
+
+TOTAL 21/21 PASS

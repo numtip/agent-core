@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { z } from "zod";
 import { evaluateHardPolicy } from "./policy.js";
+import { isBlockedAddress, stripBrackets } from "./net-guard.js";
 
 export const browserActionSchema=z.enum([
   "BROWSER_READ",
@@ -19,7 +20,8 @@ export const browserPlanRequestSchema=z.object({
   action:browserActionSchema,
   page_text:z.string().max(200000).default(""),
   input_text:z.string().max(20000).optional(),
-  element_ref:z.string().min(1).optional(),
+  // Snapshot refs only (e.g. "e12", "f1e3"); arbitrary selectors could reach hidden fields.
+  element_ref:z.string().regex(/^[a-z]{1,2}\d{1,6}(?:[a-z]\d{1,6})?$/i,"element_ref must be a snapshot ref such as e12").optional(),
   allow_domains:z.array(z.string().min(1)).default([]),
   deny_domains:z.array(z.string().min(1)).default([]),
   environment:z.enum(["local","preview","production"]).default("local"),
@@ -28,46 +30,21 @@ export const browserPlanRequestSchema=z.object({
 
 export type BrowserPlanRequest=z.infer<typeof browserPlanRequestSchema>;
 
-function hostnameAllowed(hostname:string,allow:string[],deny:string[]) {
+export function hostnameAllowed(hostname:string,allow:string[],deny:string[]) {
   const h=hostname.toLowerCase();
   if(deny.some((d)=>h===d.toLowerCase() || h.endsWith(`.${d.toLowerCase()}`)))return false;
   if(allow.length===0)return true;
   return allow.some((d)=>h===d.toLowerCase() || h.endsWith(`.${d.toLowerCase()}`));
 }
 
-function isPrivateIpv4(host:string){
-  const parts=host.split(".").map(Number);
-  if(parts.length!==4 || parts.some((n)=>Number.isNaN(n)))return false;
-  return parts[0]===10 || parts[0]===127 || (parts[0]===169&&parts[1]===254) || (parts[0]===172&&parts[1]>=16&&parts[1]<=31) || (parts[0]===192&&parts[1]===168);
-}
-
-function stripBrackets(host:string){ return host.startsWith("[")&&host.endsWith("]") ? host.slice(1,-1) : host; }
-
-// IPv6 loopback, unspecified, link-local (fe80::/10), unique-local (fc00::/7) and
-// IPv4-mapped/compatible forms are all treated as private/internal.
-function isPrivateOrReservedIpv6(host:string){
-  const h=stripBrackets(host).toLowerCase().split("%")[0];
-  if(h==="::1" || h==="::" || h==="0:0:0:0:0:0:0:1")return true;
-  const dotted=h.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if(dotted)return isPrivateIpv4(dotted[1]);
-  const hexMapped=h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if(hexMapped){
-    const hi=parseInt(hexMapped[1],16), lo=parseInt(hexMapped[2],16);
-    return isPrivateIpv4(`${hi>>8}.${hi&255}.${lo>>8}.${lo&255}`);
-  }
-  if(/^fe[89ab][0-9a-f]:/.test(h))return true;
-  if(/^f[cd][0-9a-f]{2}:/.test(h))return true;
-  return false;
-}
-
-function isUnsafeHost(hostname:string){
-  const h=stripBrackets(hostname).toLowerCase();
-  if(h==="localhost" || h.endsWith(".localhost") || h==="0.0.0.0" || h==="::1" || h==="::")return true;
+/** Lexical host check (no DNS). DNS answers are checked separately by net-guard.checkHost. */
+export function isUnsafeHost(hostname:string){
+  const h=stripBrackets(hostname).toLowerCase().replace(/\.$/,"");
+  if(!h || h==="localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal"))return true;
   // decimal/hex-only single label (e.g. http://2130706433/ === 127.0.0.1)
   if(/^\d+$/.test(h))return true;
   if(/^0x[0-9a-f]+$/.test(h))return true;
-  if(isIP(h)===4 && isPrivateIpv4(h))return true;
-  if(isIP(h)===6 && isPrivateOrReservedIpv6(h))return true;
+  if(isIP(h))return isBlockedAddress(h);
   return false;
 }
 

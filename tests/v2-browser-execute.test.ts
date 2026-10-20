@@ -3,7 +3,8 @@ import { buildApp } from "../src/app.js";
 import { Metrics } from "../src/telemetry.js";
 import type { RuntimeConfig } from "../src/config.js";
 import type { JevProvider } from "../src/providers/jev.js";
-import { McpUnavailableError, type McpPlaywrightClient, type McpToolResult } from "../src/mcp-playwright.js";
+import { McpUnavailableError, type McpPlaywrightClient, type McpSession, type McpToolResult } from "../src/mcp-playwright.js";
+import type { LookupAll } from "../src/net-guard.js";
 
 function makeConfig(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
   return {
@@ -19,26 +20,45 @@ function makeConfig(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
   };
 }
 
-class FakeMcp implements McpPlaywrightClient {
-  calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
-  constructor(private readonly enabled = true, private readonly mode: "ok" | "down" = "ok") {}
+export class FakeMcp implements McpPlaywrightClient {
+  calls: Array<{ tool: string; args: Record<string, unknown>; session: string }> = [];
+  opened = 0;
+  closed = 0;
+  constructor(private readonly enabled = true, private readonly mode: "ok" | "down" = "ok",
+              private readonly landOn: (url: string) => string | null = (url) => url) {}
   isEnabled(): boolean { return this.enabled; }
   endpoint(): string { return "http://127.0.0.1:8791/mcp"; }
   async callTool(tool: string, args: Record<string, unknown>): Promise<McpToolResult> {
-    this.calls.push({ tool, args });
+    const session = await this.openSession();
+    try { return await session.call(tool, args); } finally { await session.close(); }
+  }
+  async openSession(): Promise<McpSession> {
     if (this.mode === "down") throw new McpUnavailableError("MCP transport error: connect ECONNREFUSED");
-    return { tool, isError: false, text: `### Page\n- Page URL: ${args.url}\n- Page Title: Example Domain`,
-             latency_ms: 42, session_id: "sess-1" };
+    const id = `sess-${++this.opened}`;
+    return {
+      id,
+      call: async (tool, args) => {
+        this.calls.push({ tool, args, session: id });
+        const landed = tool === "browser_navigate" ? this.landOn(String(args.url)) : null;
+        const text = landed ? `### Page\n- Page URL: ${landed}\n- Page Title: Example Domain`
+          : tool === "browser_snapshot" ? `### Snapshot\n- heading "Example Domain" [ref=e3]\n- textbox "Name" [ref=e12]`
+          : "### Result\nok";
+        return { tool, isError: false, text, latency_ms: 42, session_id: id };
+      },
+      close: async () => { this.closed++; },
+    };
   }
 }
+
+export const publicLookup: LookupAll = async () => [{ address: "93.184.215.14", family: 4 }];
 
 const provider = { decide: async () => ({ result: "x", confidence: 0.9, providerRequestId: "x" }) } as unknown as JevProvider;
 const headers = { "x-agent-project": "handbook", "x-agent-project-token": "secret" };
 const basePayload = { project: "handbook", task_id: "t1", url: "https://example.com/", action: "BROWSER_READ" };
 
 async function post(payload: Record<string, unknown>, config = makeConfig(), mcp = new FakeMcp(),
-                    hdrs = headers, metrics = new Metrics()) {
-  const app = buildApp({ config, provider, mcp, metrics });
+                    hdrs = headers, metrics = new Metrics(), lookup: LookupAll = publicLookup) {
+  const app = buildApp({ config, provider, mcp, metrics, lookup });
   const response = await app.inject({ method: "POST", url: "/v2/browser/execute", headers: hdrs, payload });
   await app.close();
   return { response, mcp, metrics };
@@ -51,11 +71,13 @@ describe("V2 live browser execution", () => {
     const body = response.json();
     expect(body.disposition).toBe("EXECUTED");
     expect(body.executed).toBe(true);
-    expect(body.receipt.mcp.tool).toBe("browser_navigate");
+    // READ returns the inline snapshot of the verified page (refs usable for a later INPUT)
+    expect(body.receipt.mcp.tool).toBe("browser_snapshot");
     expect(body.receipt.mcp.session_id).toBe("sess-1");
     expect(body.receipt.receipt_id).toMatch(/^mcp_/);
     expect(body.result.text).toContain("Example Domain");
-    expect(mcp.calls).toHaveLength(1);
+    expect(body.result.text).toContain("[ref=e12]");
+    expect(mcp.calls.map((c) => c.tool)).toEqual(["browser_navigate", "browser_snapshot"]);
     expect(metrics.snapshot().counters.browser_executions).toBe(1);
   });
 
@@ -63,7 +85,7 @@ describe("V2 live browser execution", () => {
     const { response, mcp } = await post({ ...basePayload, action: "BROWSER_NAVIGATE" });
     expect(response.statusCode).toBe(200);
     expect(response.json().disposition).toBe("EXECUTED");
-    expect(mcp.calls[0]).toEqual({ tool: "browser_navigate", args: { url: "https://example.com/" } });
+    expect(mcp.calls[0]).toEqual({ tool: "browser_navigate", args: { url: "https://example.com/" }, session: "sess-1" });
   });
 
   it("does not execute when the kill switch is off", async () => {
@@ -142,11 +164,68 @@ describe("V2 live browser execution", () => {
     const withoutRef = await post({ ...basePayload, action: "BROWSER_INPUT", input_text: "hello" });
     expect(withoutRef.response.json().executed).toBe(false);
     expect(withoutRef.response.json().reason).toBe("BROWSER_INPUT_REQUIRES_ELEMENT_REF");
-    expect(withoutRef.mcp.calls.map((c) => c.tool)).toEqual(["browser_navigate"]);
+    expect(withoutRef.mcp.calls).toHaveLength(0);
 
     const withRef = await post({ ...basePayload, action: "BROWSER_INPUT", input_text: "hello", element_ref: "e12" });
     expect(withRef.response.json().disposition).toBe("EXECUTED");
-    expect(withRef.mcp.calls.map((c) => c.tool)).toEqual(["browser_navigate", "browser_type"]);
+    expect(withRef.mcp.calls.map((c) => c.tool)).toEqual(["browser_navigate", "browser_snapshot", "browser_type"]);
+    expect(withRef.mcp.calls[2].args).toMatchObject({ target: "e12", ref: "e12", text: "hello" });
+    expect(withRef.mcp.calls[2].args).not.toHaveProperty("submit");
     expect(withRef.response.json().result.typed).toEqual({ tool: "browser_type", input_chars: 5 });
+    // navigate and type must share one isolated session, and it must be closed afterwards
+    expect(new Set(withRef.mcp.calls.map((c) => c.session)).size).toBe(1);
+    expect(withRef.mcp.opened).toBe(1);
+    expect(withRef.mcp.closed).toBe(1);
+  });
+
+  it("refuses to type into a ref that is not on the verified page", async () => {
+    const { response, mcp } = await post({ ...basePayload, action: "BROWSER_INPUT", input_text: "hello", element_ref: "e999" });
+    expect(response.json()).toMatchObject({ disposition: "DENY", reason: "ELEMENT_REF_NOT_FOUND", executed: false });
+    expect(mcp.calls.map((c) => c.tool)).not.toContain("browser_type");
+    expect(mcp.closed).toBe(1);
+  });
+
+  it.each(["#password", "input[type=hidden]", "text=Login", "e1 >> nth=0"])("rejects selector-shaped element_ref %s", async (ref) => {
+    const { response, mcp } = await post({ ...basePayload, action: "BROWSER_INPUT", input_text: "x", element_ref: ref });
+    expect(response.statusCode).toBe(400);
+    expect(mcp.opened).toBe(0);
+  });
+
+  it("denies a target whose DNS answer is private (rebinding / internal name)", async () => {
+    const rebind: LookupAll = async () => [{ address: "93.184.215.14", family: 4 }, { address: "10.1.254.237", family: 4 }];
+    const { response, mcp } = await post(basePayload, makeConfig(), new FakeMcp(), headers, new Metrics(), rebind);
+    expect(response.json()).toMatchObject({ disposition: "DENY", reason: "DNS_RESOLVES_TO_BLOCKED_ADDRESS", executed: false });
+    expect(mcp.opened).toBe(0);
+  });
+
+  it("fails closed when DNS resolution fails", async () => {
+    const broken: LookupAll = async () => { throw new Error("ENOTFOUND"); };
+    const { response, mcp } = await post(basePayload, makeConfig(), new FakeMcp(), headers, new Metrics(), broken);
+    expect(response.json()).toMatchObject({ disposition: "DENY", reason: "DNS_RESOLUTION_FAILED" });
+    expect(mcp.opened).toBe(0);
+  });
+
+  it("withholds the page and blanks the tab when a redirect lands on a private host", async () => {
+    const mcp = new FakeMcp(true, "ok", () => "http://169.254.169.254/latest/meta-data/");
+    const { response } = await post(basePayload, makeConfig(), mcp);
+    const body = response.json();
+    expect(body).toMatchObject({ disposition: "DENY", reason: "PRIVATE_OR_LOCAL_HOST_BLOCKED", executed: false, navigated: true });
+    expect(JSON.stringify(body)).not.toContain("meta-data");
+    expect(mcp.calls.map((c) => c.args.url)).toEqual(["https://example.com/", "about:blank"]);
+    expect(mcp.closed).toBe(1);
+  });
+
+  it("does not type when the redirect target is outside allow_domains", async () => {
+    const mcp = new FakeMcp(true, "ok", () => "https://evil.example.net/login");
+    const { response } = await post({ ...basePayload, action: "BROWSER_INPUT", element_ref: "e3", input_text: "hi",
+      allow_domains: ["example.com"] }, makeConfig(), mcp);
+    expect(response.json()).toMatchObject({ disposition: "DENY", reason: "DOMAIN_POLICY_BLOCK" });
+    expect(mcp.calls.map((c) => c.tool)).not.toContain("browser_type");
+  });
+
+  it("fails closed when the final URL cannot be verified", async () => {
+    const mcp = new FakeMcp(true, "ok", () => null);
+    const { response } = await post(basePayload, makeConfig(), mcp);
+    expect(response.json()).toMatchObject({ disposition: "DENY", reason: "FINAL_URL_UNVERIFIED" });
   });
 });

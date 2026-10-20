@@ -231,4 +231,46 @@ describe("ledger budget safety", () => {
       })
     ).rejects.toThrow(/total_tokens is less than sum/i);
   });
+
+  it("records actual overspend and blocks the next request without erasing spend", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ledger-overspend-"));
+    const ledgerPath = join(dir, "ledger.json");
+    const config = testRuntimeConfig({
+      ...ledgerConfig(ledgerPath, 0.01),
+      groqEnabled: true,
+      groqFallbackOpenRouter: false,
+      groqUsdPer1MInputTokens: 1,
+      groqUsdPer1MOutputTokens: 1,
+      groqMaxCompletionTokens: 32
+    });
+    const inference = new InferenceService(config, {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "OVER" } }],
+            usage: { prompt_tokens: 20_000, completion_tokens: 10, total_tokens: 20_010 }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    });
+    const first = await inference.complete({
+      project: "agent-core",
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 32
+    });
+    expect(first.budget.overspend_blocked).toBe(true);
+    expect(first.estimated_cost_usd).toBeGreaterThan(0.01);
+    const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
+    expect(ledger.spent_usd).toBe(first.estimated_cost_usd);
+    expect(ledger.overspend_blocked).toBe(true);
+    await expect(
+      inference.complete({
+        project: "agent-core",
+        messages: [{ role: "user", content: "again" }],
+        max_tokens: 16
+      })
+    ).rejects.toThrow(/overspend|budget/i);
+    const after = JSON.parse(await readFile(ledgerPath, "utf8"));
+    expect(after.spent_usd).toBe(ledger.spent_usd);
+  });
 });

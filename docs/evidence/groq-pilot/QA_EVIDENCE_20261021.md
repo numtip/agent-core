@@ -14,7 +14,7 @@ npm test
 | Suite | Focus |
 |-------|--------|
 | `tests/groq-inference.test.ts` | Scope auth, ledger write, fallback, budget reject |
-| `tests/groq-inference-hardening.test.ts` | Auth 401, production block, 429 retry, pricing split, concurrency reservation, release on fail, fail-closed ledger, **GET budget**, **HTTP 402**, reasoning mapping, `GROQ_PILOT_ACTIVATION=blocked` |
+| `tests/groq-inference-hardening.test.ts` | Auth 401/403, production block, 429 retry, pricing split, concurrency, HTTP 402, HTTP 503 pilot/corrupt ledger/ambiguous usage |
 | `tests/knowledge-redaction.test.ts` | `gsk_` pattern redaction |
 | `tests/ledger-budget-safety.test.ts` | Corrupt ledger fail-closed, month archive, stale lock, cross-process reserve deny, fallback shared budget, ambiguous usage reject |
 | Full regression | All other vitest files |

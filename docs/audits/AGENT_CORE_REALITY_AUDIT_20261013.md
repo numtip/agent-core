@@ -1,5 +1,7 @@
 # Agent Core — Reality Audit (2026-10-13)
 
+> Historical morning record. The live symlink was unknown when this file was written. A later VPS check (same day) found production at `releases/dbe20a5`, package `0.7.0`, 8 capabilities, 6 project identities, rollback `releases/01092e2`. That result is in [../STATUS.md](../STATUS.md). Do not treat the UNKNOWN rows below as the current pointer.
+
 **Auditor role:** Lead Engineering Agent (READ-ONLY production; no mutations)  
 **Repository:** `numtip/agent-core`  
 **Audit window:** 2026-10-13 (UTC+7)  

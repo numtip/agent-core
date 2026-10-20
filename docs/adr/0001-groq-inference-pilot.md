@@ -12,7 +12,7 @@ Agent Core must keep **Jev Decisions on OpenRouter** (`/v1/decision`, `/v1/route
 
 1. Add `/v2/inference/complete` and `/v2/inference/budget` behind scope **`inference`**.
 2. **Pilot activation:** `development` and `test` only; **`production` always BLOCKED** (`GROQ_PILOT_ACTIVATION=dev-only|blocked`).
-3. **Budget:** monthly USD cap with ledger file; atomic writes; fail-closed on corrupt JSON; month rollover archives prior file (no silent spend reset); in-process + O_EXCL file lock with stale-lock reclaim (**not** multi-instance safe on VPS).
+3. **Budget:** monthly USD cap with ledger file; atomic writes; fail-closed on corrupt JSON; month rollover archives prior file (no silent spend reset). Pre-dispatch reserve uses a conservative prompt estimate and a hard completion-token cap. If provider usage still exceeds the cap, settlement **records the actual cost**, sets `overspend_blocked`, and refuses later requests. In-process + O_EXCL file lock with stale-lock reclaim (**not** multi-instance safe on VPS).
 4. **Cost:** `estimated_cost_usd` from **provider-reported token usage** × configurable rates — **not** Groq/OpenRouter invoices.
 5. **Resilience:** timeout, retry on 429/5xx, optional OpenRouter chat fallback with **separate pricing rates**.
 6. **Reservations:** reserve before upstream call, settle or release on success/failure.

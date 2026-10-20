@@ -492,4 +492,111 @@ describe("Groq inference hardening", () => {
       else process.env.GROQ_PILOT_ACTIVATION = previous;
     }
   });
+
+  it("returns HTTP 503 when the cost ledger is corrupt", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "groq-corrupt-"));
+    const ledgerPath = join(dir, "ledger.json");
+    await writeFile(ledgerPath, "{not-json", "utf8");
+    const config = testRuntimeConfig({
+      env: "test",
+      host: "127.0.0.1",
+      port: 8787,
+      openRouterDecisionsUrl: "https://example.invalid",
+      jevModel: "~typesafe/jev-latest",
+      requestTimeoutMs: 1000,
+      confidenceExecute: 0.85,
+      confidenceReview: 0.6,
+      authRequired: true,
+      projectKeys: { "agent-core": "local-token" },
+      projectScopes: { "agent-core": ["inference"] },
+      rateLimitMax: 100,
+      rateLimitWindowMs: 60000,
+      auditLogPath: null,
+      playwrightMcpExecutionEnabled: false,
+      playwrightMcpEndpoint: "http://127.0.0.1:8791/mcp",
+      playwrightMcpTimeoutMs: 5000,
+      groqEnabled: true,
+      groqApiKey: "gsk-test",
+      groqCostLedgerPath: ledgerPath,
+      groqFallbackOpenRouter: false
+    });
+    const app = buildApp({
+      config,
+      inference: new InferenceService(config, { fetchImpl: async () => okGroqResponse() })
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v2/inference/complete",
+      headers: {
+        "x-agent-project": "agent-core",
+        "x-agent-project-token": "local-token"
+      },
+      payload: {
+        project: "agent-core",
+        messages: [{ role: "user", content: "hi" }]
+      }
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().error).toBe("INFERENCE_LEDGER_UNAVAILABLE");
+    await app.close();
+  });
+
+  it("returns HTTP 503 when provider usage is ambiguous and does not bill", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "groq-ambiguous-"));
+    const ledgerPath = join(dir, "ledger.json");
+    const config = testRuntimeConfig({
+      env: "test",
+      host: "127.0.0.1",
+      port: 8787,
+      openRouterDecisionsUrl: "https://example.invalid",
+      jevModel: "~typesafe/jev-latest",
+      requestTimeoutMs: 1000,
+      confidenceExecute: 0.85,
+      confidenceReview: 0.6,
+      authRequired: true,
+      projectKeys: { "agent-core": "local-token" },
+      projectScopes: { "agent-core": ["inference"] },
+      rateLimitMax: 100,
+      rateLimitWindowMs: 60000,
+      auditLogPath: null,
+      playwrightMcpExecutionEnabled: false,
+      playwrightMcpEndpoint: "http://127.0.0.1:8791/mcp",
+      playwrightMcpTimeoutMs: 5000,
+      groqEnabled: true,
+      groqApiKey: "gsk-test",
+      groqCostLedgerPath: ledgerPath,
+      groqFallbackOpenRouter: false
+    });
+    const app = buildApp({
+      config,
+      inference: new InferenceService(config, {
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: "X" } }],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 3 }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+      })
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v2/inference/complete",
+      headers: {
+        "x-agent-project": "agent-core",
+        "x-agent-project-token": "local-token"
+      },
+      payload: {
+        project: "agent-core",
+        messages: [{ role: "user", content: "hi" }]
+      }
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().error).toBe("INFERENCE_USAGE_AMBIGUOUS");
+    const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
+    expect(ledger.spent_usd).toBe(0);
+    expect(ledger.reserved_usd).toBe(0);
+    await app.close();
+  });
 });

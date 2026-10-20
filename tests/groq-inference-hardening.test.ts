@@ -308,4 +308,58 @@ describe("Groq inference hardening", () => {
     );
     expect(() => guard.assertLedgerConfigured()).toThrow(/GROQ_COST_LEDGER/);
   });
+
+  it("blocks when GROQ_PILOT_ACTIVATION=blocked", async () => {
+    const previous = process.env.GROQ_PILOT_ACTIVATION;
+    process.env.GROQ_PILOT_ACTIVATION = "blocked";
+    try {
+      const config = testRuntimeConfig({
+        env: "development",
+        host: "127.0.0.1",
+        port: 8787,
+        openRouterDecisionsUrl: "https://example.invalid",
+        jevModel: "~typesafe/jev-latest",
+        requestTimeoutMs: 1000,
+        confidenceExecute: 0.85,
+        confidenceReview: 0.6,
+        authRequired: false,
+        projectKeys: {},
+        projectScopes: {},
+        rateLimitMax: 100,
+        rateLimitWindowMs: 60000,
+        auditLogPath: null,
+        playwrightMcpExecutionEnabled: false,
+        playwrightMcpEndpoint: "http://127.0.0.1:8791/mcp",
+        playwrightMcpTimeoutMs: 5000,
+        groqEnabled: true,
+        groqApiKey: "gsk-test",
+        groqCostLedgerPath: null
+      });
+      const inference = new InferenceService(config, {
+        fetchImpl: async () => okGroqResponse()
+      });
+      await expect(
+        inference.complete({
+          project: "agent-core",
+          messages: [{ role: "user", content: "hi" }]
+        })
+      ).rejects.toBeInstanceOf(InferencePilotBlockedError);
+
+      const app = buildApp({ config });
+      const http = await app.inject({
+        method: "POST",
+        url: "/v2/inference/complete",
+        payload: {
+          project: "agent-core",
+          messages: [{ role: "user", content: "hi" }]
+        }
+      });
+      expect(http.statusCode).toBe(503);
+      expect(http.json().error).toBe("GROQ_PILOT_BLOCKED");
+      await app.close();
+    } finally {
+      if (previous === undefined) delete process.env.GROQ_PILOT_ACTIVATION;
+      else process.env.GROQ_PILOT_ACTIVATION = previous;
+    }
+  });
 });

@@ -21,7 +21,7 @@
 
 ## Multi-provider inference routing — source only, 2026-10-21
 
-**Status: IMPLEMENTED in source · NOT DEPLOYED.** Production `:8787` stays on `dbe20a5`, staging `:8788` stays on `41195f6`.
+**Status: DEPLOYED as code parity on 2026-10-21 17:59 +07** — production `:8787` now runs `releases/5ae20af` (was `dbe20a5`); inference routes stay blocked (no project holds the `inference` scope, pilot guard active). Staging `:8788` stays on `41195f6`.
 
 - Route contract: `POST /v2/inference/complete` accepts `task` (`fast` | `reasoning` | `frontier`) in addition to `provider_preference`; responses gained `task` and `route`.
 - Chains ([ADR 0003](adr/0003-multi-provider-inference-routing.md)): `fast → groq, deepseek` · `reasoning → deepseek, groq` · `frontier → openrouter, deepseek, groq`.

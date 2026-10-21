@@ -155,6 +155,7 @@ describe("ledger budget safety", () => {
       ...ledgerConfig(ledgerPath, 10),
       openRouterApiKey: "or-key",
       groqFallbackOpenRouter: true,
+      inferenceFrontierEnabled: true,
       groqUsdPer1MInputTokens: 0.1,
       groqUsdPer1MOutputTokens: 0.1,
       openRouterUsdPer1MInputTokens: 0.9,

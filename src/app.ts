@@ -29,7 +29,7 @@ import { routeReaLocalHandoff } from "./rea-local/route.js";
 import { inferenceCompleteRequestSchema, inferenceCompleteResponseSchema } from "./inference/schemas.js";
 import { InferenceBudgetExceededError, InferenceLedgerCorruptError } from "./inference/cost-guard.js";
 import { InferenceUsageAmbiguousError } from "./inference/usage-validation.js";
-import { InferencePilotBlockedError, InferenceService, InferenceUnavailableError } from "./services/inference.js";
+import { InferenceFrontierBlockedError, InferencePilotBlockedError, InferenceService, InferenceUnavailableError } from "./services/inference.js";
 import { z } from "zod";
 
 export type AppDependencies = {
@@ -302,6 +302,10 @@ export function buildApp(deps:AppDependencies={}) {
       if(error instanceof InferenceUsageAmbiguousError){
         await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"USAGE_AMBIGUOUS",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
         return reply.code(503).send({error:"INFERENCE_USAGE_AMBIGUOUS",message:error.message});
+      }
+      if(error instanceof InferenceFrontierBlockedError){
+        await audit.write({timestamp:new Date().toISOString(),project:parsed.data.project,route:request.url,action:"INFERENCE_DENIED",result:"FRONTIER_BLOCKED",task_id:parsed.data.task_id,fallback:false,latency_ms:Date.now()-started});
+        return reply.code(403).send({error:"INFERENCE_FRONTIER_BLOCKED",message:error.message});
       }
       throw error;
     }

@@ -1,0 +1,71 @@
+{
+  "results": [
+    {
+      "label": "fast->groq",
+      "n": 5,
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "p50_ms": 368,
+      "p95_ms": 471,
+      "max_ms": 471,
+      "total_cost_usd": 0.00030975,
+      "cost_per_req_usd": 0.00006195,
+      "fallbacks": 0,
+      "errors": 0
+    },
+    {
+      "label": "reasoning->deepseek",
+      "n": 5,
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "p50_ms": 2808,
+      "p95_ms": 7387,
+      "max_ms": 7387,
+      "total_cost_usd": 0.00039242,
+      "cost_per_req_usd": 0.00007848,
+      "fallbacks": 0,
+      "errors": 0
+    },
+    {
+      "label": "pref=groq",
+      "n": 3,
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "p50_ms": 354,
+      "p95_ms": 381,
+      "max_ms": 381,
+      "total_cost_usd": 0.00018585,
+      "cost_per_req_usd": 0.00006195,
+      "fallbacks": 0,
+      "errors": 0
+    },
+    {
+      "label": "pref=deepseek",
+      "n": 3,
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "p50_ms": 1337,
+      "p95_ms": 1759,
+      "max_ms": 1759,
+      "total_cost_usd": 0.00015288,
+      "cost_per_req_usd": 0.00005096,
+      "fallbacks": 0,
+      "errors": 0
+    }
+  ],
+  "frontierLive": {
+    "provider": "openrouter",
+    "model": "openai/gpt-oss-120b",
+    "latency_ms": 3478,
+    "cost_usd": 0.00006375,
+    "route": [
+      "openrouter",
+      "deepseek",
+      "groq"
+    ]
+  },
+  "frontierBlocked": "InferenceFrontierBlockedError",
+  "ledger_spent_usd": 0.00110465,
+  "budget_usd": 10,
+  "circuit": {}
+}

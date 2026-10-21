@@ -109,7 +109,9 @@ describe("Groq inference route", () => {
   it("falls back to OpenRouter chat when Groq fails", async () => {
     const config = testRuntimeConfig({
       ...baseConfig,
-      groqFallbackOpenRouter: true
+      groqFallbackOpenRouter: true,
+      // Frontier (OpenRouter) escalation is policy-gated since ADR 0003.
+      inferenceFrontierEnabled: true
     });
 
     let calls = 0;

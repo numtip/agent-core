@@ -1,7 +1,9 @@
 # Release candidate — multi-provider inference routing (2026-10-21)
 
-**RC:** `rc-2026.10.21-multiprovider` · **Commit:** `5e1bceb0b7d3c7099ca647d66691d9fe61bd9346` (squash of PR [#41](https://github.com/numtip/agent-core/pull/41) into `main`)
-**Status:** SOURCE MERGED · **NOT DEPLOYED** · production deploy requires Prinya's explicit approval
+**RC:** `rc-2026.10.21-multiprovider` · **Commit:** `5ae20af0fe86a5974d95844aa9b706d464f61f8e`
+**Status:** DEPLOYED to production `:8787` as **code parity** on 2026-10-21 17:59 +07 (owner-approved). Inference stays **blocked** in production: no project holds the `inference` scope and the ADR 0001 pilot guard still refuses the routes.
+
+Source chain: PR [#41](https://github.com/numtip/agent-core/pull/41) (`5e1bceb`, multi-provider routing) → PR [#43](https://github.com/numtip/agent-core/pull/43) (`5ae20af`, shared breaker state) → this document.
 
 ## What the candidate contains
 
@@ -15,7 +17,32 @@
 | Contract | `POST /v2/inference/complete` accepts optional `task`; responses add `task` + `route` |
 | Unchanged | Jev Decisions on `/v1/decision`, `/v1/route`, `/v1/qa`; pilot guard (production always blocked); auth, scopes, SSRF/browser guards |
 
-## Deployment procedure (approval required, not executed)
+
+## Deployment log — 2026-10-21 17:59 +07 (executed, owner-approved)
+
+| Item | Value |
+|---|---|
+| Release directory | `~/agent-core/releases/5ae20af` (`RELEASE_SHA=5ae20af…`, built with `npm ci` + `npm run build`, `npm test` 268 passed / 3 skipped) |
+| Cutover | `current` symlink swapped atomically (`ln -sfn` + `mv -T`) → `releases/5ae20af`, then `systemctl --user restart agent-core.service` |
+| Previous release | `releases/dbe20a5` (kept on disk, rollback target) |
+| Service | `active`, MainPID `3130339` (was `2891042`), `GET /v1/health` → 200 including the new routing capability fields |
+| Auth surface | unauthenticated `/v2/inference/complete` → **401**; `/v1/decision` unauthenticated → **401**; no project holds the `inference` scope, so inference stays unreachable for clients |
+| Env changes | `~/.config/agent-core/agent-core.env` (mode 600, backup `agent-core.env.bak-multiprovider-20261021-175937`): `DEEPSEEK_*` (key stored host-only, never in git or chat), `DEEPSEEK_ENABLED=false`, `OPENROUTER_FRONTIER_MODEL=deepseek/deepseek-v4-flash`, `INFERENCE_FRONTIER_ENABLED=false`, `INFERENCE_CIRCUIT_*`, `GROQ_TIMEOUT_MS=25000` |
+| Staging `:8788` | not modified, still `releases/41195f6`, health 200 |
+
+**Artifact proof (isolated dev instance `:8789` from the same release, stopped afterwards, temp env deleted):**
+
+| Case | Route | Provider / model | Latency | Cost |
+|---|---|---|---|---|
+| `task=fast` | `[groq, deepseek, openrouter]` | deepseek `deepseek-flash` (fallback after a Groq cold-start timeout) | 21 016 ms | $0.0000237 |
+| `task=reasoning` | `[deepseek, groq, openrouter]` | deepseek `deepseek-v4-pro` | 999 ms | $0.0000377 |
+| `task=frontier` | `[openrouter, deepseek, groq]` | openrouter `deepseek/deepseek-v4-flash` | 1 653 ms | $0.0000048 |
+
+Ledger for that smoke: 3 requests, **$0.00006612**. Finding: Groq's first call after idle took **15.4 s** (subsequent 0.33–0.54 s) — that is why `GROQ_TIMEOUT_MS` was raised to 25 s; the fallback it caused was a timeout, not a provider error.
+
+**Rollback (not needed, verified mechanically):** `ln -sfn ~/agent-core/releases/dbe20a5 ~/agent-core/current.new && mv -T ~/agent-core/current.new ~/agent-core/current && systemctl --user restart agent-core.service`, then `GET /v1/health`.
+
+## Deployment procedure (for the next activation)
 
 1. Get approval for the production window. This RC touches server code only; no schema, no credential rotation, no Cloudflare change.
 2. Build a new release directory from `5e1bceb` next to `~/agent-core/releases/` (do **not** reuse `dbe20a5` or `41195f6`).

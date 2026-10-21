@@ -1,4 +1,8 @@
-import { groqRuntimeDefaults, type RuntimeConfig } from "../config.js";
+import {
+  deepseekRuntimeDefaults,
+  groqRuntimeDefaults,
+  type RuntimeConfig
+} from "../config.js";
 import { assertProviderUsage } from "../inference/usage-validation.js";
 
 export type ChatMessage = {
@@ -15,7 +19,7 @@ export type ChatCompletionUsage = {
 export type ChatCompletionResult = {
   content: string;
   model: string;
-  provider: "groq" | "openrouter";
+  provider: "groq" | "deepseek" | "openrouter";
   providerRequestId: string | null;
   usage: ChatCompletionUsage;
 };
@@ -45,7 +49,7 @@ async function postChatCompletion(input: {
   url: string;
   apiKey: string;
   model: string;
-  provider: "groq" | "openrouter";
+  provider: "groq" | "deepseek" | "openrouter";
   body: ChatCompletionRequest;
   timeoutMs: number;
   fetchImpl: typeof fetch;
@@ -85,11 +89,12 @@ async function postChatCompletion(input: {
 
     const payload = (await response.json()) as OpenAiChatPayload;
     const message = payload.choices?.[0]?.message as
-      | { content?: string; reasoning?: string }
+      | { content?: string; reasoning?: string; reasoning_content?: string }
       | undefined;
     let content = message?.content;
-    if ((!content || content.length === 0) && typeof message?.reasoning === "string") {
-      content = message.reasoning;
+    const reasoning = message?.reasoning ?? message?.reasoning_content;
+    if ((!content || content.length === 0) && typeof reasoning === "string") {
+      content = reasoning;
     }
     if (typeof content !== "string" || content.length === 0) {
       throw new Error(`${input.provider} chat completion returned empty content`);
@@ -126,14 +131,17 @@ export class GroqChatProvider {
     return Boolean(this.groq.groqEnabled && this.config.groqApiKey);
   }
 
-  async complete(body: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(
+    body: ChatCompletionRequest,
+    modelOverride?: string
+  ): Promise<ChatCompletionResult> {
     if (!this.configured()) {
       throw new Error("Groq inference is not configured");
     }
     return postChatCompletion({
       url: `${this.groq.groqBaseUrl.replace(/\/$/, "")}/chat/completions`,
       apiKey: this.config.groqApiKey!,
-      model: this.groq.groqModel,
+      model: modelOverride ?? this.groq.groqModel,
       provider: "groq",
       body,
       timeoutMs: this.groq.groqTimeoutMs,
@@ -156,17 +164,53 @@ export class OpenRouterChatProvider {
     return Boolean(this.config.openRouterApiKey);
   }
 
-  async complete(body: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(
+    body: ChatCompletionRequest,
+    modelOverride?: string
+  ): Promise<ChatCompletionResult> {
     if (!this.configured()) {
       throw new Error("OpenRouter chat fallback is not configured");
     }
     return postChatCompletion({
       url: this.groq.openRouterChatUrl,
       apiKey: this.config.openRouterApiKey!,
-      model: this.groq.openRouterChatModel,
+      model: modelOverride ?? this.groq.openRouterChatModel,
       provider: "openrouter",
       body,
       timeoutMs: this.groq.groqTimeoutMs,
+      fetchImpl: this.fetchImpl
+    });
+  }
+}
+
+export class DeepSeekChatProvider {
+  private readonly ds: ReturnType<typeof deepseekRuntimeDefaults>;
+
+  constructor(
+    private readonly config: RuntimeConfig,
+    private readonly fetchImpl: typeof fetch = fetch
+  ) {
+    this.ds = deepseekRuntimeDefaults(config);
+  }
+
+  configured(): boolean {
+    return Boolean(this.ds.deepseekEnabled && this.config.deepseekApiKey);
+  }
+
+  async complete(
+    body: ChatCompletionRequest,
+    modelOverride?: string
+  ): Promise<ChatCompletionResult> {
+    if (!this.configured()) {
+      throw new Error("DeepSeek inference is not configured");
+    }
+    return postChatCompletion({
+      url: `${this.ds.deepseekBaseUrl.replace(/\/$/, "")}/chat/completions`,
+      apiKey: this.config.deepseekApiKey!,
+      model: modelOverride ?? this.ds.deepseekModel,
+      provider: "deepseek",
+      body,
+      timeoutMs: this.ds.deepseekTimeoutMs,
       fetchImpl: this.fetchImpl
     });
   }

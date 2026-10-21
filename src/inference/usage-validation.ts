@@ -9,7 +9,7 @@ export class InferenceUsageAmbiguousError extends Error {
 
 export function assertProviderUsage(
   usage: ChatCompletionUsage,
-  provider: "groq" | "openrouter"
+  provider: "groq" | "deepseek" | "openrouter"
 ): ChatCompletionUsage {
   const { prompt_tokens, completion_tokens, total_tokens } = usage;
   if (

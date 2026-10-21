@@ -24,6 +24,20 @@ export type RuntimeConfig = {
   openRouterChatModel?: string;
   openRouterUsdPer1MInputTokens?: number;
   openRouterUsdPer1MOutputTokens?: number;
+  /** Frontier tier model on OpenRouter; defaults to openRouterChatModel when unset. */
+  openRouterFrontierModel?: string;
+  deepseekEnabled?: boolean;
+  deepseekApiKey?: string;
+  deepseekBaseUrl?: string;
+  deepseekModel?: string;
+  deepseekReasoningModel?: string;
+  deepseekTimeoutMs?: number;
+  deepseekUsdPer1MInputTokens?: number;
+  deepseekUsdPer1MOutputTokens?: number;
+  /** Policy gate for the frontier (OpenRouter) escalation tier. Off unless explicitly enabled. */
+  inferenceFrontierEnabled?: boolean;
+  inferenceCircuitFailureThreshold?: number;
+  inferenceCircuitCooldownMs?: number;
   groqLedgerLockTimeoutMs?: number;
   groqLedgerStaleLockMs?: number;
   groqMaxCompletionTokens?: number;
@@ -71,6 +85,40 @@ export function groqRuntimeDefaults(config: RuntimeConfig): Required<
     openRouterChatUrl:
       config.openRouterChatUrl ?? "https://openrouter.ai/api/v1/chat/completions",
     openRouterChatModel: config.openRouterChatModel ?? "openai/gpt-oss-120b"
+  };
+}
+
+export type DeepSeekRuntimeDefaults = Required<
+  Pick<
+    RuntimeConfig,
+    | "deepseekEnabled"
+    | "deepseekBaseUrl"
+    | "deepseekModel"
+    | "deepseekReasoningModel"
+    | "deepseekTimeoutMs"
+    | "deepseekUsdPer1MInputTokens"
+    | "deepseekUsdPer1MOutputTokens"
+    | "inferenceFrontierEnabled"
+    | "inferenceCircuitFailureThreshold"
+    | "inferenceCircuitCooldownMs"
+  >
+> & { openRouterFrontierModel: string };
+
+export function deepseekRuntimeDefaults(config: RuntimeConfig): DeepSeekRuntimeDefaults {
+  const groq = groqRuntimeDefaults(config);
+  return {
+    deepseekEnabled: config.deepseekEnabled ?? Boolean(config.deepseekApiKey),
+    deepseekBaseUrl: config.deepseekBaseUrl ?? "https://api.deepseek.com",
+    deepseekModel: config.deepseekModel ?? "deepseek-flash",
+    deepseekReasoningModel: config.deepseekReasoningModel ?? "deepseek-v4-pro",
+    deepseekTimeoutMs: config.deepseekTimeoutMs ?? groq.groqTimeoutMs,
+    // Published-rate estimates, override per account; not an invoice figure.
+    deepseekUsdPer1MInputTokens: config.deepseekUsdPer1MInputTokens ?? 0.28,
+    deepseekUsdPer1MOutputTokens: config.deepseekUsdPer1MOutputTokens ?? 0.42,
+    openRouterFrontierModel: config.openRouterFrontierModel ?? groq.openRouterChatModel,
+    inferenceFrontierEnabled: config.inferenceFrontierEnabled ?? false,
+    inferenceCircuitFailureThreshold: config.inferenceCircuitFailureThreshold ?? 3,
+    inferenceCircuitCooldownMs: config.inferenceCircuitCooldownMs ?? 30_000
   };
 }
 
@@ -127,6 +175,18 @@ export function loadConfig(): RuntimeConfig {
     openRouterChatModel:process.env.OPENROUTER_CHAT_MODEL ?? "openai/gpt-oss-120b",
     openRouterUsdPer1MInputTokens:numberFromEnv("OPENROUTER_USD_PER_1M_INPUT_TOKENS",0.15),
     openRouterUsdPer1MOutputTokens:numberFromEnv("OPENROUTER_USD_PER_1M_OUTPUT_TOKENS",0.60),
+    openRouterFrontierModel:process.env.OPENROUTER_FRONTIER_MODEL || undefined,
+    deepseekEnabled:boolFromEnv("DEEPSEEK_ENABLED",Boolean(process.env.DEEPSEEK_API_KEY)),
+    deepseekApiKey:process.env.DEEPSEEK_API_KEY,
+    deepseekBaseUrl:process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+    deepseekModel:process.env.DEEPSEEK_MODEL ?? "deepseek-flash",
+    deepseekReasoningModel:process.env.DEEPSEEK_REASONING_MODEL ?? "deepseek-v4-pro",
+    deepseekTimeoutMs:numberFromEnv("DEEPSEEK_TIMEOUT_MS",15000),
+    deepseekUsdPer1MInputTokens:numberFromEnv("DEEPSEEK_USD_PER_1M_INPUT_TOKENS",0.28),
+    deepseekUsdPer1MOutputTokens:numberFromEnv("DEEPSEEK_USD_PER_1M_OUTPUT_TOKENS",0.42),
+    inferenceFrontierEnabled:boolFromEnv("INFERENCE_FRONTIER_ENABLED",false),
+    inferenceCircuitFailureThreshold:numberFromEnv("INFERENCE_CIRCUIT_FAILURE_THRESHOLD",3),
+    inferenceCircuitCooldownMs:numberFromEnv("INFERENCE_CIRCUIT_COOLDOWN_MS",30000),
     groqLedgerLockTimeoutMs:numberFromEnv("GROQ_LEDGER_LOCK_TIMEOUT_MS",5000),
     groqLedgerStaleLockMs:numberFromEnv("GROQ_LEDGER_STALE_LOCK_MS",120000),
     groqMaxCompletionTokens:numberFromEnv("GROQ_MAX_COMPLETION_TOKENS",1024),

@@ -19,6 +19,18 @@
 
 ---
 
+## Multi-provider inference routing — source only, 2026-10-21
+
+**Status: IMPLEMENTED in source · NOT DEPLOYED.** Production `:8787` stays on `dbe20a5`, staging `:8788` stays on `41195f6`.
+
+- Route contract: `POST /v2/inference/complete` accepts `task` (`fast` | `reasoning` | `frontier`) in addition to `provider_preference`; responses gained `task` and `route`.
+- Chains ([ADR 0003](adr/0003-multi-provider-inference-routing.md)): `fast → groq, deepseek` · `reasoning → deepseek, groq` · `frontier → openrouter, deepseek, groq`.
+- Frontier (OpenRouter) tier is opt-in via `INFERENCE_FRONTIER_ENABLED=1`, never in `production`, and refused (`403 INFERENCE_FRONTIER_BLOCKED`) when the policy is off.
+- Per-provider circuit breaker (in-process), shared monthly budget ledger, retries and timeouts unchanged from ADR 0001.
+- Local benchmark with real credentials: [evidence/INFERENCE_MULTI_PROVIDER_BENCH_2026-10-21.json](evidence/INFERENCE_MULTI_PROVIDER_BENCH_2026-10-21.json).
+
+---
+
 ## Current runtime line
 
 Verified on VPS `ubantu24` (`10.1.254.237`) at 2026-10-13 23:16 +07 by reading the live user unit, and re-read at 23:23 +07 (same symlink, same MainPID, health still `0.7.0`). No restart and no deploy were part of either check. Closeout status: **SECURITY_SOURCE_MERGED — PRODUCTION_PENDING**. Documentation closeout: **CLOSEOUT_DOCUMENTED** at `c1411eb` (PR #32). The morning audit that still says the live SHA is unknown is historical: [audits/AGENT_CORE_REALITY_AUDIT_20261013.md](audits/AGENT_CORE_REALITY_AUDIT_20261013.md).

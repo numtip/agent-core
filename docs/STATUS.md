@@ -1,6 +1,27 @@
 # Platform Status
 
-## Groq / Hermes staging closeout — 2026-10-21 (VPS 237)
+## Evening closeout — 2026-10-21 22:40 +07 (VPS 237)
+
+**Verdict: PASS** for Hermes → production Jev and Hermes → staging multi-provider. Production inference stays closed. This section supersedes the morning port table below.
+
+| Item | State |
+|---|---|
+| GitHub `main` (before this closeout) | `37694cb863346ac8b470414daef10435d69ad641` — docs only, one commit ahead of the live release |
+| Production | `agent-core.service` **active**, MainPID `3130339` since 17:59 +07 · `127.0.0.1:8787` · `current` → `releases/5ae20af` (`5ae20af0fe86a5974d95844aa9b706d464f61f8e`) · health **200**, `groq_inference_enabled: false` |
+| Production inference | **Closed.** No project holds scope `inference`. `AGENT_CORE_ENV=production` blocks the pilot and frontier. Unauthenticated `GET /v2/inference/budget` → **401**. No production ledger file |
+| Production Jev | Hermes skill `~/.hermes/skills/integrations/agent-core-jev-decision/` · `POST /v1/decision` · project `rae-attendance-v2` (scope `decision` only) · HTTP **200** · `NEXT_ACTION` / `ACK` · confidence **0.98** · `fallback: false` · client **899 ms** · audit **885 ms** · task `hermes-jev-decision-20261021` in `~/agent-core/logs/audit.jsonl`. Response has no provider, model, or cost. Configured model from health: `~typesafe/jev-latest`. Upstream timeout `OPENROUTER_TIMEOUT_MS=8000` |
+| Staging | `agent-core-groq-staging.service` **active**, MainPID `3305713` since 22:29 +07 · `127.0.0.1:8788` · code `releases/5ae20af` (not via `current`) · `AGENT_CORE_ENV=development` · project `groq-staging-v237` scope **`inference` only** |
+| Staging routes (1 call each, `fallback: false`) | fast → groq `openai/gpt-oss-120b` **459 ms** **$0.00005685** · reasoning → deepseek `deepseek-v4-pro` **1514 ms** **$0.00005908** · frontier → openrouter `deepseek/deepseek-v4-flash` **1429 ms** **$0.00000975** |
+| Staging budget | month `2026-10` · cap **$10** · spent **$0.00041113** · remaining **$9.999589** · reserved **$0** · **9** requests · `overspend_blocked: false` · breaker file `{}` (closed) |
+| Hermes inference skill | `~/.hermes/skills/integrations/agent-core-groq-inference/` · `--task fast\|reasoning\|frontier` · CONTEXT_ONLY · staging `:8788` only |
+| Hermes gateway | `hermes-gateway.service` **active**, MainPID `2467893`, `NRestarts=0` |
+| Rollback | Staging unit/env backup `~/agent-core/backups/staging-multiprovider-20261021-222924/`. Release `41195f6` still on disk. Restore that unit and env, then restart **only** the staging unit |
+
+Audit evidence (no secrets): staging `~/agent-core/logs/groq-staging-v237/audit.jsonl` tasks `hermes-mp-fast-20261021`, `hermes-mp-reasoning-20261021`, `hermes-mp-frontier-20261021`. Production audit path above. Credentials stay in mode-600 env files and are not copied here.
+
+---
+
+## Groq / Hermes staging closeout — 2026-10-21 morning (VPS 237)
 
 **Verdict: PASS** · Production Jev on `:8787` unchanged · Groq pilot **staging only** on `:8788`.
 
@@ -21,7 +42,7 @@
 
 ## Multi-provider inference routing — source only, 2026-10-21
 
-**Status: DEPLOYED as code parity on 2026-10-21 17:59 +07** — production `:8787` now runs `releases/5ae20af` (was `dbe20a5`); inference routes stay blocked (no project holds the `inference` scope, pilot guard active). Staging `:8788` stays on `41195f6`.
+**Status: DEPLOYED as code parity on 2026-10-21 17:59 +07** — production `:8787` runs `releases/5ae20af` (was `dbe20a5`); inference routes stay blocked (no project holds the `inference` scope, pilot guard active). At 22:29 +07 staging `:8788` was pointed at the same `5ae20af` tree with its own env, ledger, and audit. `41195f6` remains the staging rollback tree.
 
 - Route contract: `POST /v2/inference/complete` accepts `task` (`fast` | `reasoning` | `frontier`) in addition to `provider_preference`; responses gained `task` and `route`.
 - Chains ([ADR 0003](adr/0003-multi-provider-inference-routing.md)): `fast → groq, deepseek` · `reasoning → deepseek, groq` · `frontier → openrouter, deepseek, groq`.

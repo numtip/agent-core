@@ -28,7 +28,10 @@ usage, DeepSeek also returns `reasoning_content` next to `content`.
    and the tier is **never** allowed while `AGENT_CORE_ENV=production`.
 4. **Circuit breaker** (`src/inference/circuit-breaker.ts`): after
    `INFERENCE_CIRCUIT_FAILURE_THRESHOLD` consecutive failures a provider is skipped for
-   `INFERENCE_CIRCUIT_COOLDOWN_MS`, then allowed one trial call. In-process state only.
+   `INFERENCE_CIRCUIT_COOLDOWN_MS`, then allowed one trial call. State is shared between
+   processes on the same host through `<ledger>-breakers.json` under the ledger file lock;
+   without a ledger path it degrades to process-local memory. A corrupt state file means
+   "all closed" (availability over stale failure memory).
 5. **Budget** stays shared and unchanged (ADR 0001): one monthly ledger, reserve before dispatch,
    settle or release after. The reservation is now the **worst case across the planned chain**,
    because any provider in it may serve the request.
@@ -47,7 +50,11 @@ policy gate must also be on. Deployments that relied on the old implicit fallbac
   adapter already used by Groq/OpenRouter.
 - `task` is optional (defaults to `fast`), so existing callers keep working; responses gained
   `task` and `route` fields.
-- Multi-instance budget and breaker state remain NOT guaranteed (same limitation as ADR 0001).
+- Budget ledger and breaker state are now shared across processes **on one host** (same file +
+  `O_EXCL` lock). Multiple **hosts** sharing one ledger are still not supported.
+- Frontier model is operator-chosen: `OPENROUTER_FRONTIER_MODEL=deepseek/deepseek-v4-flash`
+  (2026-10-21 decision). It is a cheap tier, not a stronger model — swap the env value for a
+  stronger model if escalation should buy capability rather than availability.
 
 ## Evidence (2026-10-21, local host, real credentials, ledger in a temp dir)
 

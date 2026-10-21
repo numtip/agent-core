@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildApp } from "../src/app.js";
 import { InferenceService, InferenceFrontierBlockedError } from "../src/services/inference.js";
 import { InferenceCircuitBreaker } from "../src/inference/circuit-breaker.js";
@@ -152,7 +155,7 @@ describe("inference multi-provider service", () => {
       url.includes("deepseek.example") ? bad() : ok("GROQ_OK")
     );
     const breaker = new InferenceCircuitBreaker(1, 60_000);
-    breaker.recordFailure("deepseek");
+    await breaker.recordFailure("deepseek");
     const service = new InferenceService(baseConfig, { fetchImpl: impl, circuitBreaker: breaker });
 
     const result = await service.complete({
@@ -243,22 +246,44 @@ describe("inference multi-provider service", () => {
 });
 
 describe("circuit breaker", () => {
-  it("opens after the threshold and allows a trial after the cooldown", () => {
+  it("opens after the threshold and allows a trial after the cooldown", async () => {
     let now = 1_000;
-    const breaker = new InferenceCircuitBreaker(2, 5_000, () => now);
+    const breaker = new InferenceCircuitBreaker(2, 5_000, { now: () => now });
 
-    expect(breaker.allow("groq")).toBe(true);
-    breaker.recordFailure("groq");
-    expect(breaker.allow("groq")).toBe(true);
-    breaker.recordFailure("groq");
-    expect(breaker.allow("groq")).toBe(false);
-    expect(breaker.snapshot().groq).toEqual({ failures: 2, open: true });
+    expect(await breaker.allow("groq")).toBe(true);
+    await breaker.recordFailure("groq");
+    expect(await breaker.allow("groq")).toBe(true);
+    await breaker.recordFailure("groq");
+    expect(await breaker.allow("groq")).toBe(false);
+    expect((await breaker.snapshot()).groq).toEqual({ failures: 2, open: true });
 
     now += 5_001;
-    expect(breaker.allow("groq")).toBe(true);
+    expect(await breaker.allow("groq")).toBe(true);
 
-    breaker.recordSuccess("groq");
-    expect(breaker.snapshot().groq).toBeUndefined();
+    await breaker.recordSuccess("groq");
+    expect((await breaker.snapshot()).groq).toBeUndefined();
+  });
+
+  it("shares failures between two instances through the state file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "breaker-shared-"));
+    const statePath = join(dir, "ledger-breakers.json");
+    const a = new InferenceCircuitBreaker(2, 60_000, { statePath });
+    const b = new InferenceCircuitBreaker(2, 60_000, { statePath });
+
+    await a.recordFailure("deepseek");
+    await b.recordFailure("deepseek"); // a different process would see the first failure
+    expect(await a.allow("deepseek")).toBe(false);
+
+    await b.recordSuccess("deepseek");
+    expect(await a.allow("deepseek")).toBe(true);
+  });
+
+  it("treats a corrupt state file as all-closed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "breaker-corrupt-"));
+    const statePath = join(dir, "ledger-breakers.json");
+    await writeFile(statePath, "{not json", "utf8");
+    const breaker = new InferenceCircuitBreaker(1, 60_000, { statePath });
+    expect(await breaker.allow("groq")).toBe(true);
   });
 });
 

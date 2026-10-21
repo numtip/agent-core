@@ -26,7 +26,7 @@
 - Route contract: `POST /v2/inference/complete` accepts `task` (`fast` | `reasoning` | `frontier`) in addition to `provider_preference`; responses gained `task` and `route`.
 - Chains ([ADR 0003](adr/0003-multi-provider-inference-routing.md)): `fast → groq, deepseek` · `reasoning → deepseek, groq` · `frontier → openrouter, deepseek, groq`.
 - Frontier (OpenRouter) tier is opt-in via `INFERENCE_FRONTIER_ENABLED=1`, never in `production`, and refused (`403 INFERENCE_FRONTIER_BLOCKED`) when the policy is off.
-- Per-provider circuit breaker (in-process), shared monthly budget ledger, retries and timeouts unchanged from ADR 0001.
+- Per-provider circuit breaker with state shared across processes on the host (`<ledger>-breakers.json` + ledger lock), shared monthly budget ledger, retries and timeouts unchanged from ADR 0001.
 - Local benchmark with real credentials: [evidence/INFERENCE_MULTI_PROVIDER_BENCH_2026-10-21.json](evidence/INFERENCE_MULTI_PROVIDER_BENCH_2026-10-21.json).
 
 ---

@@ -11,7 +11,7 @@ import {
 import { isGroqPilotRouteAllowed, groqPilotBlockReason } from "../inference/pilot-guard.js";
 import { capCompletionTokens, estimatePromptTokens } from "../inference/prompt-estimate.js";
 import { estimateUsageCostUsd } from "../inference/pricing.js";
-import { InferenceCircuitBreaker } from "../inference/circuit-breaker.js";
+import { InferenceCircuitBreaker, breakerStatePathFor } from "../inference/circuit-breaker.js";
 import { frontierPolicy, modelFor, resolveRoute, type InferenceProviderId } from "../inference/routing.js";
 import type { InferenceCompleteRequest, InferenceCompleteResponse } from "../inference/schemas.js";
 import {
@@ -80,7 +80,11 @@ export class InferenceService {
       deps?.circuitBreaker ??
       new InferenceCircuitBreaker(
         ds.inferenceCircuitFailureThreshold,
-        ds.inferenceCircuitCooldownMs
+        ds.inferenceCircuitCooldownMs,
+        {
+          statePath: breakerStatePathFor(this.groqDefaults.groqCostLedgerPath),
+          lockTimeoutMs: config.groqLedgerLockTimeoutMs
+        }
       );
   }
 
@@ -105,7 +109,7 @@ export class InferenceService {
       deepseek_enabled: this.providers.deepseek.configured(),
       openrouter_fallback_configured: this.providers.openrouter.configured(),
       frontier_escalation: frontierPolicy(this.config).allowed ? "enabled" : "blocked",
-      circuit_breakers: this.breaker.snapshot(),
+      circuit_breakers: await this.breaker.snapshot(),
       overspend_blocked: ledger.overspend_blocked,
       cost_basis: "estimate_from_provider_usage" as const,
       pilot_activation: isGroqPilotRouteAllowed(this.config) ? "dev-only" : "blocked"
@@ -194,9 +198,12 @@ export class InferenceService {
       );
     }
 
-    const candidates = route.chain.filter(
-      (provider) => this.providers[provider].configured() && this.breaker.allow(provider)
-    );
+    const candidates: InferenceProviderId[] = [];
+    for (const provider of route.chain) {
+      if (!this.providers[provider].configured()) continue;
+      if (!(await this.breaker.allow(provider))) continue;
+      candidates.push(provider);
+    }
     if (candidates.length === 0) {
       throw new InferenceUnavailableError(
         `No inference provider is available for route ${route.chain.join(",")}`
@@ -219,17 +226,17 @@ export class InferenceService {
 
     try {
       for (const provider of candidates) {
-        if (!this.breaker.allow(provider)) continue;
+        if (!(await this.breaker.allow(provider))) continue;
         try {
           const model = modelFor(this.config, provider, route.task);
           result = await this.completeWithRetries(async () => {
             attempts += 1;
             return this.providers[provider].complete(body, model);
           });
-          this.breaker.recordSuccess(provider);
+          await this.breaker.recordSuccess(provider);
           break;
         } catch (error) {
-          this.breaker.recordFailure(provider);
+          await this.breaker.recordFailure(provider);
           if (
             error instanceof InferenceBudgetExceededError ||
             error instanceof InferenceUsageAmbiguousError ||

@@ -23,14 +23,31 @@ Security properties (all enforced in code, not by convention):
   * verification re-reads only metadata + sha256 on the remote side; the value
     is never transmitted back.
 
-Existing destinations are refused unless `--replace` is given, and `--replace`
-itself is refused unless `--apply` is also given: replacing a live credential is
-a deliberate act, never a side effect of re-running a delivery.
+Existing destinations are refused unless `--replace` is given, `--replace` is
+refused unless `--apply` is also given, and an overwrite of an existing credential
+additionally needs `--confirm-replace` (or HANDOFF_CONFIRM_REPLACE set to the exact
+destination path). Replacing a live credential is a deliberate act, never a side
+effect of re-running a delivery.
 
   python3 handoff-project-token.py --dest /abs/path/agent-core.token            # DRY RUN (default)
   python3 handoff-project-token.py --dest /abs/path/agent-core.token --apply
-  python3 handoff-project-token.py --dest /abs/path/agent-core.token --apply --replace
+  python3 handoff-project-token.py --dest /abs/path/agent-core.token --apply --replace --confirm-replace
   python3 handoff-project-token.py --dest /abs/path/agent-core.token --verify-only
+
+Piping the output into a command that stops early is NOT a dry run.
+--------------------------------------------------------------------------
+`... --apply | head -1` still performs the write. Closing the pipe only truncates
+the report; it does not undo a delivered credential, and it can hide the fact that
+the write already happened. Use the default (no --apply) or --verify-only to check
+a destination, and read the exit code rather than the visible output:
+
+  * on Linux/macOS the exit code survives a broken pipe, so check `$?`
+    (and `set -o pipefail` if you need the pipeline's status)
+  * on Windows PowerShell `$LASTEXITCODE` after a pipeline reflects the LAST
+    command in the pipeline, not this script - run it without a pipe to be sure
+  * if stdout closes early this script prints a warning to stderr and exits 6,
+    and that warning means "the write may already have completed"
+
 """
 import argparse
 import hashlib
@@ -40,6 +57,24 @@ import posixpath
 import shlex
 import subprocess
 import sys
+
+EXIT_OK = 0
+EXIT_REFUSED = 4
+EXIT_PIPE = 6
+EXIT_INTERRUPTED = 130
+
+PIPE_CLOSED_WARNING = (
+    "! stdout closed early (a pipe such as `head` was closed).\n"
+    "! THIS IS NOT A DRY RUN: the remote write may already have been performed.\n"
+    "! Piping to `head` does not undo a delivery. Check the destination with:\n"
+    "!     handoff-project-token.py --dest <path> --verify-only"
+)
+
+INTERRUPTED_WARNING = (
+    "! interrupted before the run finished.\n"
+    "! THIS IS NOT A DRY RUN: a partially executed step may have changed the destination.\n"
+    "! Check it with --verify-only before assuming anything."
+)
 
 SSH_TARGET = os.environ.get("HANDOFF_SSH_TARGET", "vps190")
 PROJECT = os.environ.get("HANDOFF_PROJECT", "rae-attendance-v2")
@@ -58,15 +93,33 @@ def fp(v: str) -> str:
 
 
 def load_token() -> tuple[str, list[str]]:
-    kv = {}
-    with open(ENV_FILE) as fh:
-        for line in fh:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                kv[k] = v
-    return (json.loads(kv["AGENT_CORE_PROJECT_KEYS"])[PROJECT],
-            json.loads(kv["AGENT_CORE_PROJECT_SCOPES"])[PROJECT])
+    """Read this project's token and scopes from the protected env file.
+
+    Every failure is a clear refusal: a probe that reaches this on the wrong machine should
+    get a sentence, not a traceback. Values are never included in the message.
+    """
+    try:
+        with open(ENV_FILE) as fh:
+            kv = {}
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    kv[k] = v
+    except OSError as exc:
+        sys.exit(f"REFUSING: cannot read {ENV_FILE} ({exc.strerror or exc.__class__.__name__})")
+
+    try:
+        keys = json.loads(kv["AGENT_CORE_PROJECT_KEYS"])
+        scopes = json.loads(kv["AGENT_CORE_PROJECT_SCOPES"])
+    except KeyError as exc:
+        sys.exit(f"REFUSING: {ENV_FILE} has no {exc.args[0]}")
+    except json.JSONDecodeError:
+        sys.exit(f"REFUSING: {ENV_FILE} contains malformed JSON (value withheld)")
+
+    if PROJECT not in keys:
+        sys.exit(f"REFUSING: project {PROJECT} is not in AGENT_CORE_PROJECT_KEYS")
+    return keys[PROJECT], scopes.get(PROJECT, [])
 
 
 def load_payload(src_file: str | None) -> tuple[bytes, str, str]:
@@ -93,8 +146,13 @@ def load_payload(src_file: str | None) -> tuple[bytes, str, str]:
 
 
 def ssh(cmd: str, stdin_bytes: bytes | None = None):
-    p = subprocess.run(["ssh", "-o", "BatchMode=yes", SSH_TARGET, cmd],
-                       input=stdin_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # A missing or unrunnable ssh must become a reported refusal, not a traceback in the
+    # middle of a delivery: the caller decides, and it always refuses on a non-zero rc.
+    try:
+        p = subprocess.run(["ssh", "-o", "BatchMode=yes", SSH_TARGET, cmd],
+                           input=stdin_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as exc:
+        return 255, "", f"could not run ssh ({exc.__class__.__name__})"
     return p.returncode, p.stdout.decode(), p.stderr.decode()
 
 
@@ -173,6 +231,10 @@ def main() -> None:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--replace", action="store_true",
                     help="allow replacing an existing destination file (requires --apply)")
+    ap.add_argument("--confirm-replace", action="store_true",
+                    help="second, explicit acknowledgement that this OVERWRITES a live "
+                         "credential (requires --apply --replace); alternatively set "
+                         "HANDOFF_CONFIRM_REPLACE to the exact destination path")
     ap.add_argument("--verify-only", action="store_true")
     ap.add_argument("--src-file", help="local 0600 file whose exact bytes are the payload "
                                        "(default: the project token from the protected env)")
@@ -182,8 +244,22 @@ def main() -> None:
     if errs:
         sys.exit("REFUSING (local checks): " + "; ".join(errs))
 
+    # --verify-only is a read: refuse an ambiguous combination rather than guessing which
+    # of the two intents the operator meant.
+    if a.verify_only and (a.apply or a.replace or a.confirm_replace):
+        sys.exit("REFUSING: --verify-only is read-only and cannot be combined with "
+                 "--apply/--replace/--confirm-replace")
+
     if a.replace and not a.apply:
         sys.exit("REFUSING: --replace replaces a live credential and requires --apply")
+
+    if a.replace and a.apply and not replace_confirmed(a):
+        sys.exit(
+            "REFUSING: overwriting an existing credential needs an explicit confirmation.\n"
+            "          Nothing was written and no ssh call was made.\n"
+            "          Re-run with --confirm-replace, or set\n"
+            f"          HANDOFF_CONFIRM_REPLACE={a.dest}\n"
+            "          (the value must be the exact destination path).")
 
     payload, expect_fp, desc = load_payload(a.src_file)
     print(f"payload={desc} sha256[:12]={expect_fp}")
@@ -246,5 +322,60 @@ def main() -> None:
           "value never transmitted back and never printed")
 
 
+def replace_confirmed(a) -> bool:
+    """Two independent signals must agree before a live credential is overwritten.
+
+    1. `--confirm-replace` on the command line, or
+    2. `HANDOFF_CONFIRM_REPLACE` set to the EXACT destination path.
+
+    The env var carries the path rather than a bare `1` so an inherited variable from an
+    unrelated run cannot authorise a different destination by accident.
+    """
+    if getattr(a, "confirm_replace", False):
+        return True
+    return os.environ.get("HANDOFF_CONFIRM_REPLACE", "").strip() == a.dest
+
+
+def _silence_stdout() -> None:
+    """Suppress the second 'Exception ignored' traceback at interpreter shutdown.
+
+    Only when stdout is still the real stream: under a test harness the stream has been
+    redirected, and rewriting fd 1 there would hijack the test runner's own stdout.
+    """
+    if sys.stdout is not sys.__stdout__:
+        return
+    try:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    except Exception:                                                 # noqa: BLE001
+        pass
+
+
+def cli() -> int:
+    """Entry point that turns a truncated or interrupted run into a clear non-zero exit.
+
+    A closed pipe (`| head -1`) or a Ctrl-C does not undo anything: the remote write may
+    already have completed. Reporting that explicitly is safer than a traceback that looks
+    like nothing ran.
+    """
+    try:
+        main()
+        return EXIT_OK
+    except SystemExit as exc:
+        code = exc.code
+        if code is None:
+            return EXIT_OK
+        if isinstance(code, int):
+            return code
+        print(code, file=sys.stderr)
+        return EXIT_REFUSED
+    except BrokenPipeError:
+        _silence_stdout()
+        print(PIPE_CLOSED_WARNING, file=sys.stderr)
+        return EXIT_PIPE
+    except KeyboardInterrupt:
+        print(INTERRUPTED_WARNING, file=sys.stderr)
+        return EXIT_INTERRUPTED
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(cli())

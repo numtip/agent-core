@@ -132,12 +132,55 @@ python3 ops/handoff-project-token.py --dest /home/rae_admin/.config/rae-attendan
 # deliver
 python3 ops/handoff-project-token.py --dest <abs path> --apply
 
-# replace an existing credential (needs BOTH flags; never an accident)
-python3 ops/handoff-project-token.py --dest <abs path> --apply --replace
+# replace an existing credential (needs THREE flags; never an accident)
+python3 ops/handoff-project-token.py --dest <abs path> --apply --replace --confirm-replace
+
+# or, for automation, name the exact destination instead of passing --confirm-replace
+HANDOFF_CONFIRM_REPLACE=<exact abs path> \
+python3 ops/handoff-project-token.py --dest <exact abs path> --apply --replace
 
 # inventory a holder without exposing the value
 python3 ops/handoff-project-token.py --dest <abs path> --verify-only
 ```
+
+Overwriting a live credential needs the confirmation described below, because an
+unintended replace silently destroys the destination credential. `--verify-only` is
+read-only and refuses to be combined with any write flag.
+
+### Piping to `head` is NOT a dry run
+
+```bash
+python3 ops/handoff-project-token.py --dest <path> --apply | head -1     # STILL WRITES
+```
+
+`head` closing the pipe only truncates the report. It does not undo a delivery, and it can
+hide the fact that the write already happened — the script prints its success line *after*
+the rename. Treat every `| head`, `| tail`, `| grep` and pager as output filtering only.
+
+To check a destination, use the default (no `--apply`) or `--verify-only`. To make a run
+unambiguous:
+
+- read the **exit code**, not the visible output
+- if stdout closes early the script writes a warning to **stderr** and exits **6**; that
+  warning means "the write may already have completed"
+- a Ctrl-C exits **130** with the same warning
+- do not chain the script into a pipeline when it is carrying a credential
+
+### Replacing a live credential
+
+```bash
+python3 ops/handoff-project-token.py --dest <path> --apply --replace --confirm-replace
+```
+
+Safety rules:
+
+- `--replace` without `--apply` is refused
+- `--apply --replace` **without** confirmation is refused, and **no ssh call is made**
+- confirmation is either `--confirm-replace` or `HANDOFF_CONFIRM_REPLACE` set to the
+  **exact** destination path (a bare `1` is not accepted, so an inherited variable cannot
+  authorise a different destination)
+- `--verify-only` cannot be combined with a write flag
+- a refusal never modifies an existing destination
 
 How the write works:
 

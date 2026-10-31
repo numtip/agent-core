@@ -235,7 +235,41 @@ const defaultCapabilities: Capability[] = [
       control_plane_execution: false,
       vps_execution: false
     }
+  },
+  {
+    id: "tool.esxi-inventory",
+    kind: "TOOL",
+    description: "Read-only inventory (host, VMs, datastores) of a single standalone ESXi host via the local Unix-socket bridge. No credentials leave the bridge; no write, power or reconfigure operation exists.",
+    tags: ["esxi", "vmware", "vsphere", "inventory", "readonly", "infrastructure", "virtualization"],
+    operations: ["READ"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 60,
+    metadata: {
+      phase: "ESXI-BRIDGE-V1",
+      execution_mode: "HANDOFF",
+      transport: "PROJECT_CLIENT",
+      authority: "CONTEXT_ONLY",
+      read_only: true,
+      // The host is PINNED by the bridge; its address lives in /etc/esxi-audit-bridge/config.json and in the
+      // private bridge repository. This repository is public, so no infrastructure address is published here.
+      host_pinned: true,
+      host_config: "/etc/esxi-audit-bridge/config.json",
+      api_version: "vim25/5.5",
+      socket: "/run/esxi-audit-bridge/bridge.sock",
+      bridge_service: "esxi-audit-bridge",
+      caller_uid: 1000,
+      operation_allowlist: ["inventory"],
+      handoff_executor: "hermes/esxi_inventory_tool.py",
+      credentials_access: "denied",
+      esxi_write: "deny",
+      vm_power_operations: "deny",
+      context_governor_required: true,
+      enable_condition: "flip status to ACTIVE only after ESXI_INVENTORY_READONLY_READY=YES with live evidence"
+    }
   }
+
 ];
 
 export class CapabilityRegistry {

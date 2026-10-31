@@ -1,0 +1,39 @@
+schema_version: 2
+project:
+  id: esxi-audit-bridge
+  type: infrastructure-readonly
+platform:
+  api: v2
+  capability_registry: true
+  gateway: false
+  context_governor: true
+  supervisor: false
+features:
+  task_route: false
+  context_route: true
+  unified_route: true
+  gateway_execute: false
+  context_govern: true
+  supervisor: false
+  browser: false
+policy:
+  default: read_only
+  inventory_read: allow
+  esxi_write: deny
+  esxi_configuration_change: deny
+  vm_power_operations: deny
+  snapshot_operations: deny
+  credential_access: deny
+  destructive: deny
+integration:
+  execution_mode: HANDOFF
+  transport: PROJECT_CLIENT
+  authority: CONTEXT_ONLY
+  handoff_executor: hermes/esxi_inventory_tool.py
+  capability_id: tool.esxi-inventory
+  socket: /run/esxi-audit-bridge/bridge.sock
+  bridge_service: esxi-audit-bridge
+  caller_uid: 1000
+migration:
+  v1_compatible: true
+  preferred_api: v2

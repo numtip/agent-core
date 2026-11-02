@@ -152,6 +152,20 @@ must, in order:
 
 Until step 5 is actually observed, `CHATGPT_MEMORY_BRIDGE_READY` is **PARTIAL**.
 
+## Fail-closed rules (enforced, not documented-only)
+
+| Rule | Behaviour | Error |
+|---|---|---|
+| Governance must actually approve | only `disposition: CONTEXT_READY` is accepted; `DENIED` / `FALLBACK` / `HANDOFF` / unknown body serve nothing | `GOVERNANCE_NOT_APPROVED:<why>` |
+| No raw-text fallback | `fetch` never falls back to the file when the governor returned no text for that id | `GOVERNANCE_NOT_APPROVED:NO_TEXT_FOR:<id>` |
+| No ungoverned search results | only entries the governor kept **and** marked `used`; a DROP or unused entry is not a result | empty `results` |
+| Markdown only | `.md` (any case) inside the vault; everything else refused before reading | `UNSUPPORTED_FILE_TYPE` |
+| No symlink escape | target resolved with `realpathSync` and compared with the real vault root; walk uses `lstat` and skips links | `PATH_OUTSIDE_VAULT` |
+| No write path | there is no open-for-write call in the adapter | — |
+
+Covered by `tests/memory-bridge.test.ts` (7 fail-closed cases + 4 path/file-type cases) and by the live-vault
+checks in `docs/evidence/chatgpt-memory-bridge-2026-11-02.md`.
+
 ## Tests and evidence
 
 ```bash

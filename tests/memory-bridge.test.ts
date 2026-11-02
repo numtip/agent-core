@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ const govern: MemoryBridgeOptions["knowledgeQuery"] = async (body) => ({
 });
 
 let vault: string;
+let outside: string;
 let app: Awaited<ReturnType<typeof createMemoryBridge>>;
 const SECRET = "sk-abcdefghijklmnopqrstuvwxyz012345"; // matches the existing openai_key rule (sk-[A-Za-z0-9]{20,}) in src/knowledge-redaction.ts
 
@@ -36,6 +37,11 @@ beforeAll(async () => {
     "---\ntitle: Bridge decision\n---\n\nDecision: production code is Python at /opt. Rotated key " + SECRET + " must never be echoed.\n"
   );
   writeFileSync(join(vault, "40-Decisions/unrelated.md"), "# Groceries\n\nmilk, eggs, coffee\n");
+  // Non-Markdown content and a symlink that escapes the vault: neither may ever be served.
+  writeFileSync(join(vault, "40-Decisions/notes.txt"), "plain text, not a vault note\n");
+  outside = mkdtempSync(join(tmpdir(), "memory-bridge-outside-"));
+  writeFileSync(join(outside, "outside.md"), "# Outside\n\nleaked content from outside the vault\n");
+  symlinkSync(join(outside, "outside.md"), join(vault, "40-Decisions/linked-escape.md"));
   app = createMemoryBridge({
     vaultPath: vault,
     knowledgeQuery: govern,
@@ -47,6 +53,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(vault, { recursive: true, force: true });
+  rmSync(outside, { recursive: true, force: true });
 });
 
 describe("capability registration", () => {
@@ -220,6 +227,113 @@ describe("authorization and read-only guarantees", () => {
     const after = readFileSync(join(vault, "30-Systems/ESXI-AUDIT-BRIDGE.md"));
     expect(createHash("sha256").update(after).digest("hex")).toBe(createHash("sha256").update(before).digest("hex"));
   });
+
+describe("fail-closed governance", () => {
+  const respondWith = (body: unknown) =>
+    createMemoryBridge({ vaultPath: vault, knowledgeQuery: async () => ({ status: 200, body }), projectId: "p", projectToken: "t" });
+  const rpc = (bridge: any, name: string, args: Record<string, unknown>) =>
+    bridge
+      .inject({ method: "POST", url: "/mcp", payload: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } } as any })
+      .then((res: any) => res.json().result);
+
+  it("serves nothing when governance denies the request", async () => {
+    const bridge = respondWith({ schema_version: 2, disposition: "DENIED", reason: "PRODUCTION_WRITE_REQUIRES_APPROVAL" });
+    const search = await rpc(bridge, "search", { query: "unix socket" });
+    expect(search.isError).toBe(true);
+    expect(search.content[0].text).toContain("GOVERNANCE_NOT_APPROVED:DENIED");
+    const fetch = await rpc(bridge, "fetch", { id: "30-Systems/ESXI-AUDIT-BRIDGE.md" });
+    expect(fetch.isError).toBe(true);
+    expect(JSON.stringify(fetch)).not.toContain("read-only inventory");
+  });
+
+  it("serves nothing when governance falls back because evidence was blocked or filtered", async () => {
+    const bridge = respondWith({ schema_version: 2, disposition: "FALLBACK", reason: "EVIDENCE_BLOCKED_OR_FILTERED", blocked_count: 1 });
+    expect((await rpc(bridge, "search", { query: "unix socket" })).isError).toBe(true);
+    const fetch = await rpc(bridge, "fetch", { id: "30-Systems/ESXI-AUDIT-BRIDGE.md" });
+    expect(fetch.isError).toBe(true);
+    expect(JSON.stringify(fetch)).not.toContain("read-only inventory");
+  });
+
+  it("serves nothing when governance only hands off (no evidence was actually read)", async () => {
+    const bridge = respondWith({ schema_version: 2, disposition: "HANDOFF", reason: "MEMORY_STORE_READ_HANDOFF" });
+    expect((await rpc(bridge, "search", { query: "unix socket" })).isError).toBe(true);
+    expect((await rpc(bridge, "fetch", { id: "30-Systems/ESXI-AUDIT-BRIDGE.md" })).isError).toBe(true);
+  });
+
+  it("returns no search results when every governed entry is dropped", async () => {
+    const bridge = respondWith({
+      schema_version: 2,
+      receipt_id: "knw_test",
+      disposition: "CONTEXT_READY",
+      context: { entries: [{ id: "30-Systems/ESXI-AUDIT-BRIDGE.md", disposition: "DROP", used: false, text: null }] },
+      provenance: []
+    });
+    const search = await rpc(bridge, "search", { query: "unix socket" });
+    expect(search.isError).toBeUndefined();
+    expect(search.structuredContent.results).toEqual([]);
+  });
+
+  it("refuses to serve note text that governance did not return", async () => {
+    const bridge = respondWith({
+      schema_version: 2,
+      receipt_id: "knw_test",
+      disposition: "CONTEXT_READY",
+      context: { entries: [{ id: "30-Systems/ESXI-AUDIT-BRIDGE.md", disposition: "DROP", used: false, text: null }] },
+      provenance: []
+    });
+    const fetch = await rpc(bridge, "fetch", { id: "30-Systems/ESXI-AUDIT-BRIDGE.md" });
+    expect(fetch.isError).toBe(true);
+    expect(fetch.content[0].text).toContain("GOVERNANCE_NOT_APPROVED");
+    expect(JSON.stringify(fetch)).not.toContain("read-only inventory");
+  });
+
+  it("ignores governed entries the governor did not actually use", async () => {
+    const bridge = respondWith({
+      schema_version: 2,
+      receipt_id: "knw_test",
+      disposition: "CONTEXT_READY",
+      context: { entries: [{ id: "30-Systems/ESXI-AUDIT-BRIDGE.md", disposition: "KEEP", used: false, text: "smuggled" }] },
+      provenance: []
+    });
+    expect((await rpc(bridge, "search", { query: "unix socket" })).structuredContent.results).toEqual([]);
+  });
+
+  it("treats an unrecognisable governance body as no approval", async () => {
+    const bridge = respondWith({});
+    expect((await rpc(bridge, "fetch", { id: "30-Systems/ESXI-AUDIT-BRIDGE.md" })).content[0].text).toContain("GOVERNANCE_NOT_APPROVED:NO_DISPOSITION");
+  });
+});
+
+describe("path and file-type safety", () => {
+  it("refuses a symlink that escapes the vault, even though it is named .md", async () => {
+    const result = (await call({ jsonrpc: "2.0", id: 30, method: "tools/call", params: { name: "fetch", arguments: { id: "40-Decisions/linked-escape.md" } } })).json().result;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("PATH_OUTSIDE_VAULT");
+    expect(JSON.stringify(result)).not.toContain("leaked content");
+  });
+
+  it("never indexes through a symlink during search", async () => {
+    for (const query of ["leaked content", "Outside"]) {
+      const result = (await call({ jsonrpc: "2.0", id: 31, method: "tools/call", params: { name: "search", arguments: { query } } })).json().result;
+      const ids = (result.structuredContent?.results ?? []).map((r: any) => r.id);
+      expect(ids).not.toContain("40-Decisions/linked-escape.md");
+      expect(JSON.stringify(result)).not.toContain("leaked content");
+    }
+  });
+
+  it("refuses non-Markdown files", async () => {
+    for (const id of ["40-Decisions/notes.txt", "40-Decisions/notes.TXT", "notes.png"]) {
+      const result = (await call({ jsonrpc: "2.0", id: 32, method: "tools/call", params: { name: "fetch", arguments: { id } } })).json().result;
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("UNSUPPORTED_FILE_TYPE");
+    }
+  });
+
+  it("still serves a normal note inside the vault", async () => {
+    const result = (await call({ jsonrpc: "2.0", id: 33, method: "tools/call", params: { name: "fetch", arguments: { id: "30-Systems/ESXI-AUDIT-BRIDGE.md" } } })).json().result;
+    expect(result.structuredContent.text).toContain("read-only inventory");
+  });
+});
 
   it("advertises its readiness and auth mode on /healthz", async () => {
     const res = await app.inject({ method: "GET", url: "/healthz" });

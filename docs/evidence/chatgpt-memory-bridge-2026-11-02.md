@@ -106,6 +106,35 @@ Vault note count moved 147 → 149 during the session because an automation writ
 `40-Decisions/` when a PR is opened (`2026-11-02-jev-merge-pr-...-pr49-hold.md`, mtime 11:03:34). No file in
 the vault was written by the bridge or by this work; the QA hash check is what proves that.
 
+## E. Security hardening round (owner-requested)
+
+Three gaps were closed in `src/memory-bridge.ts` and re-verified:
+
+1. `fetch` no longer falls back to raw file text when governance returns nothing for the id.
+2. `search` no longer falls back to ungoverned candidates when every governed entry is dropped.
+3. `fetch` is restricted to `.md` inside the vault, with `realpathSync` validation and a symlink-skipping walk.
+
+Live-vault checks (real vault, ephemeral Agent Core on :8799, created and removed a temporary symlink):
+
+```
+PASS strict gate still serves a normal note  [803 chars]
+PASS refused 30-Systems/AI-OS/README.notmarkdown  [UNSUPPORTED_FILE_TYPE]
+PASS refused ../../etc/passwd.md  [PATH_OUTSIDE_VAULT]
+PASS refused 30-Systems/AI-OS/ARCHITECTURE.txt  [UNSUPPORTED_FILE_TYPE]
+PASS live vault symlink escape refused  [PATH_OUTSIDE_VAULT]
+PASS live vault symlink not indexed
+
+RESULT: ALL PASS```
+
+Unit-level regression coverage added (+11 tests, file now 31): governance `DENIED` / `FALLBACK` / `HANDOFF` /
+unknown body / all-DROP / unused-entry, symlink escape named `.md`, symlink never indexed, non-Markdown
+(`.txt`, `.TXT`, `.png`), and the positive case that a normal note is still served.
+
+Security scan (`npm audit --omit=dev`): 1 pre-existing **moderate** (`fast-uri` via `ajv` → fastify schema
+validation, advisories GHSA-w74x-v6f9-j3xg etc.). Not introduced by this PR — no dependency was added — and
+CI's gate is `--audit-level=high`, so it does not block. Left alone deliberately: bumping `ajv`/`fastify`
+transitively is a separate change with its own blast radius.
+
 ## C. Readings
 
 - **Discovery**: `tools/list` returns exactly `search` and `fetch`, both read-only, both with an output schema.

@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
 /**
@@ -78,13 +78,28 @@ export class VaultIndex {
     this.vault = resolve(vaultRoot);
   }
 
-  /** Resolve a vault-relative id, refusing anything that escapes the vault root. */
+  /**
+   * Resolve a vault-relative id to a real .md file inside the vault.
+   * Two checks that a lexical `resolve()` cannot make: the extension (this is a Markdown vault, not a file
+   * browser) and the real path after symlink expansion, so a link planted in the vault cannot point out of it.
+   */
   resolveInside(id: string): string {
+    if (!id.toLowerCase().endsWith(".md")) throw new Error("UNSUPPORTED_FILE_TYPE");
     const candidate = resolve(this.vault, id);
-    const rel = relative(this.vault, candidate);
-    if (!rel || rel.startsWith("..") || rel.split(sep).includes("..") || resolve(candidate) === this.vault) {
+    const lexical = relative(this.vault, candidate);
+    if (!lexical || lexical.startsWith("..") || lexical.split(sep).includes("..") || candidate === this.vault) {
       throw new Error("PATH_OUTSIDE_VAULT");
     }
+    const realVault = realpathSync(this.vault);
+    let realCandidate: string;
+    try {
+      realCandidate = realpathSync(candidate);
+    } catch {
+      throw new Error("NOTE_NOT_FOUND");
+    }
+    const realRel = relative(realVault, realCandidate);
+    if (!realRel || realRel.startsWith("..") || realRel.split(sep).includes("..")) throw new Error("PATH_OUTSIDE_VAULT");
+    if (!lstatSync(this.vault).isDirectory()) throw new Error("VAULT_NOT_DIRECTORY");
     return candidate;
   }
 
@@ -104,10 +119,11 @@ export class VaultIndex {
         const abs = join(dir, name);
         let st;
         try {
-          st = statSync(abs);
+          st = lstatSync(abs); // no symlink following: a linked path is not vault content
         } catch {
           continue;
         }
+        if (st.isSymbolicLink()) continue;
         if (st.isDirectory()) walk(abs);
         else if (name.endsWith(".md") && st.size <= maxBytes) out.push({ rel: relative(this.vault, abs), abs, size: st.size });
       }
@@ -171,6 +187,19 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
     return options.knowledgeQuery(body, headers);
   }
 
+  /**
+   * Governance is the only source of approved content. Anything other than CONTEXT_READY — DENIED, FALLBACK
+   * (evidence blocked or filtered), HANDOFF (nothing was read), or a body we cannot recognise — means the
+   * caller gets nothing. There is no path that falls back to the raw file.
+   */
+  function approvedContext(response: { status: number; body: any }) {
+    const body = response?.body ?? {};
+    if (body.disposition !== "CONTEXT_READY") {
+      throw new Error(`GOVERNANCE_NOT_APPROVED:${body.disposition ?? body.reason ?? "NO_DISPOSITION"}`);
+    }
+    return body;
+  }
+
   async function search(query: string, limit: number) {
     const queryTerms = terms(query);
     if (!queryTerms.length) return { results: [] as any[], receipt_id: null as string | null };
@@ -210,10 +239,12 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
       }))
     });
 
-    const governedBody = response.body ?? {};
+    const governedBody = approvedContext(response);
     const entries: any[] = governedBody.context?.entries ?? [];
-    const kept = entries.filter((entry) => entry.disposition !== "DROP");
-    const ordered: string[] = kept.length ? kept.map((entry) => String(entry.id)) : candidates.map((c) => c.rel);
+    // Only entries the governor actually used and did not drop. No fallback to ungoverned candidates.
+    const kept = entries.filter((entry) => entry.disposition !== "DROP" && entry.used === true);
+    const ordered: string[] = kept.map((entry) => String(entry.id));
+    if (!ordered.length) return { results: [] as any[], receipt_id: governedBody.receipt_id ?? null };
     const provenance: any[] = governedBody.provenance ?? [];
     const results = ordered.slice(0, limit).map((rel) => {
       const prov = provenance.find((item) => item.id === rel);
@@ -252,10 +283,14 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
         { id, path: id, text: clipped, kind: "note", source: "memory_store", importance: 1, filtered: true }
       ]
     });
-    const governedBody = response.body ?? {};
+    const governedBody = approvedContext(response);
     const prov = (governedBody.provenance ?? []).find((item: any) => item.id === id);
-    const governedText: string =
-      governedBody.context?.entries?.find((entry: any) => entry.id === id)?.text ?? clipped;
+    const approved: any = (governedBody.context?.entries ?? []).find(
+      (entry: any) => entry.id === id && entry.disposition !== "DROP" && typeof entry.text === "string"
+    );
+    // Fail closed: if governance did not return text for this note, the note is not served at all.
+    if (!approved?.text) throw new Error(`GOVERNANCE_NOT_APPROVED:NO_TEXT_FOR:${id}`);
+    const governedText: string = approved.text;
     const url = citationFor(id);
     return {
       id,

@@ -57,6 +57,16 @@ shape returned both as `structuredContent` and as a JSON string in `content[]`.
 | Existing `hermes-memory` MCP bridge? | None on this host; `~/.hermes/config.yaml` has no MCP client block (only `memory_enabled`, `memory_char_limit`). |
 | Modules to reuse instead of rewriting | `policy.ts`, `knowledge-redaction.ts`, `context-governor.ts`, `knowledge-fabric.ts`, `rate-limit.ts`, `auth.ts`, `telemetry.ts`. All reused by calling Agent Core rather than importing around the guards. |
 
+6. **Fail closed on governance, and only serve Markdown inside the vault.** `approvedContext()` accepts a
+   response **only** when `disposition === "CONTEXT_READY"`; `DENIED`, `FALLBACK` (evidence blocked or
+   filtered), `HANDOFF` (nothing was actually read) and an unrecognisable body all yield a tool error, and
+   there is **no fallback to raw file text**. `search` returns only entries the governor kept *and* marked
+   `used` (a DROP or unused entry is not a result); `fetch` serves text only when the governor returned text
+   for that id, otherwise `GOVERNANCE_NOT_APPROVED:NO_TEXT_FOR:<id>`. Paths are restricted to `.md` files
+   (`UNSUPPORTED_FILE_TYPE`) and validated with `realpathSync` against the real vault root, so a symlink
+   planted in the vault cannot point outside it; the directory walk uses `lstatSync` and skips symlinks
+   entirely, so linked content is never indexed.
+
 ## Consequences
 
 - ChatGPT can be given curated, redacted, receipted context without a second knowledge stack, and the vault

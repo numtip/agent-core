@@ -139,16 +139,59 @@ WantedBy=default.target
 Server readiness is not the same as a ChatGPT connection. Nothing is exposed today. To connect, an owner
 must, in order:
 
-1. Decide the inbound auth model — OAuth (CIMD/DCR, preferred by OpenAI; note ChatGPT cannot present custom
-   API keys or client-credentials grants) or a static bearer token.
-2. Add an ingress rule on the **existing** Cloudflare tunnel to `127.0.0.1:8792`. Current state of
+**Recommended first: Secure MCP Tunnel, not the Cloudflare tunnel.** Verified against
+<https://developers.openai.com/api/docs/guides/secure-mcp-tunnels> and the ChatGPT connector docs (2026-11-02):
+Secure MCP Tunnel is outbound-only ("run tunnel-client inside the network that can already reach your MCP
+server; it opens an outbound HTTPS path to OpenAI"), needs **no inbound port, no Cloudflare change and no
+public hostname**, and the connector dialog itself offers it ("Under Connection, enter your Server URL, or
+select **Tunnel**"). The Cloudflare route stays a fallback.
+
+ChatGPT's own auth constraints, which decide this:
+
+- Connector auth options are "OAuth, No authentication, and OAuth or no authentication"
+  (<https://developers.openai.com/api/docs/guides/custom-mcp-server>) — there is **no custom-header / API-key
+  option**, so `MEMORY_BRIDGE_BEARER_TOKEN` cannot be presented by ChatGPT itself.
+- ChatGPT "does **not** support machine-to-machine OAuth grants such as client credentials … nor can it present
+  custom API keys" (<https://developers.openai.com/plugins/build/auth>). A public endpoint therefore means
+  implementing OAuth 2.1 + CIMD, not reusing our bearer token.
+- Adding a custom MCP server needs no Developer Mode: "In the current Plugins experience, add a custom MCP
+  server directly from Plugins" (<https://help.openai.com/en/articles/12584461>). Publishing it to a whole
+  workspace with RBAC/action control is Business/Enterprise/Edu ("Admins/owners and authorized developers
+  (Enterprise/Edu only) can connect and test MCP servers privately before publishing").
+
+So the ordered plan (owner approval each step):
+
+1. **Private personal connection via Secure MCP Tunnel** (no Cloudflare, no public listener):
+   1. Platform → tunnel settings (`platform.openai.com/settings/organization/tunnels`) → create a tunnel, note
+      `tunnel_id`. Tunnel permissions are Platform RBAC and are **separate** from ChatGPT custom-MCP access.
+   2. Create a runtime API key for `tunnel-client`.
+   3. On this host: `tunnel-client init --sample sample_mcp_http_local --profile vault \
+      --tunnel-id tunnel_… --mcp-server-url http://127.0.0.1:8792/mcp`, then
+      `tunnel-client doctor --profile vault --explain`, then `tunnel-client run --profile vault` as a user
+      service. Readiness: the client serves `/healthz`, `/readyz`, `/metrics` and a loopback-only admin UI.
+   4. ChatGPT → Plugins → **Add custom MCP server** → Connection: **Tunnel** → same `tunnel_id` → auth → create.
+   5. Test one prompt that must call `search` then `fetch`, and confirm citations.
+   The bridge keeps binding `127.0.0.1:8792` with `MEMORY_BRIDGE_BEARER_TOKEN` set; "the private MCP server does
+   not need a public listener".
+2. **Fallback only if a public endpoint is truly required:** implement OAuth 2.1 + CIMD and add a Cloudflare
+   hostname — never "no authentication" for a private vault, and never rely on our static bearer token
+   (ChatGPT cannot send it).
+
+**Eligibility, honestly:** the connector flow itself needs no Developer Mode ("In the current Plugins
+experience, add a custom MCP server directly from Plugins" — help.openai.com/en/articles/12584461). Workspace
+publishing with RBAC and action control is documented for Business/Enterprise/Edu ("Admins/owners and
+authorized developers (Enterprise/Edu only) can connect and test MCP servers privately before publishing"),
+and personal accounts are told to use their own personal Platform organization for tunnels. Whether a Plus/Pro
+individual can connect a custom MCP server is **not stated** in the docs we could read — check in-product
+before assuming it.
+3. Fallback only — add an ingress rule on the **existing** Cloudflare tunnel to `127.0.0.1:8792`. Current state of
    `/etc/cloudflared/config.yml` (read-only inspection): flat ingress list, `agent.raemanagemju.net` ->
    `http://127.0.0.1:8787`, `webhook.raemanagemju.net` -> `:8644`, handbook -> `:8097`, catch-all `404`.
    There is **no path-based split**, and staging `:8788` has no hostname at all - so a bridge route means a
    real CF change, and the file already carries ~20 hand-made `.bak` copies: change it as a reviewed diff.
-3. Set `MEMORY_BRIDGE_BEARER_TOKEN` (or front it with an OAuth proxy) and only then bind beyond loopback.
-4. Add the server in ChatGPT: Plugins → **Add custom MCP server** → server URL `/mcp`.
-5. Verify with a real prompt that `search` and `fetch` are called and citations resolve.
+4. Set `MEMORY_BRIDGE_BEARER_TOKEN` (or front it with an OAuth proxy) and only then bind beyond loopback.
+5. Add the server in ChatGPT: Plugins → **Add custom MCP server** → server URL `/mcp`, or the tunnel.
+6. Verify with a real prompt that `search` and `fetch` are called and citations resolve.
 
 Until step 5 is actually observed, `CHATGPT_MEMORY_BRIDGE_READY` is **PARTIAL**.
 

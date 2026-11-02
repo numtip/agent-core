@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "egress-proxy": "node dist/src/egress-proxy-server.js",
-    "qa:browser-hardening": "node ops/v2-browser-hardening-qa.mjs"
+    "qa:browser-hardening": "node ops/v2-browser-hardening-qa.mjs",
+    "memory-bridge": "tsx src/memory-bridge-cli.ts"
   },
   "dependencies": {
     "fastify": "^5.0.0",

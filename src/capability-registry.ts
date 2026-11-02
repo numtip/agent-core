@@ -260,7 +260,7 @@ const defaultCapabilities: Capability[] = [
     operations: ["READ"],
     projects: ["*"],
     risk: "LOW",
-    status: "PLANNED",
+    status: "ACTIVE",
     priority: 74,
     metadata: {
       phase: "MEMORY-BRIDGE-V1",
@@ -275,8 +275,14 @@ const defaultCapabilities: Capability[] = [
       requires: ["MEMORY_BRIDGE_PROJECT", "MEMORY_BRIDGE_PROJECT_TOKEN", "OBSIDIAN_VAULT_PATH"],
       // No write path exists in the adapter; vault access is read-only by construction.
       vault_write: "deny",
-      public_exposure: "not exposed: requires owner-approved Cloudflare route + OAuth or bearer gate",
-      enable_condition: "flip status to ACTIVE only after the bridge is deployed AND a real ChatGPT connection is verified",
+      // Reachable only through the OpenAI Secure MCP Tunnel: the bridge itself binds loopback and no Cloudflare
+      // hostname was added.
+      public_exposure: "tunnel-only (OpenAI Secure MCP Tunnel, outbound); no public port, no Cloudflare change",
+      activated_at: "2026-11-02",
+      activation_evidence: "docs/evidence/chatgpt-memory-bridge-e2e-2026-11-02.md",
+      chatgpt_plugin: "AI-OS Obsidian Memory",
+      citation_ui: "UNVERIFIED (owner-supplied receipts; ChatGPT rendering not observed on this host)",
+      enable_condition: "satisfied 2026-11-02: deployed, tunnel ready, and a real ChatGPT session reached search and fetch",
       docs: "docs/integrations/CHATGPT_MEMORY_BRIDGE.md"
     }
   },

@@ -1,5 +1,26 @@
 # Platform Status
 
+## Memory bridge activation closeout — 2026-11-02 (VPS 237)
+
+**Verdict: PASS** for ChatGPT → Obsidian memory bridge, read-only, through the OpenAI Secure MCP Tunnel.
+Production inference and production routes are unchanged.
+
+| Item | State |
+|---|---|
+| GitHub `main` (before this closeout) | `025002f6e4879f63a0d0a75d46ec69206dc3eebf` — memory bridge merged (#49) |
+| ChatGPT E2E | plugin **AI-OS Obsidian Memory** → `search` **8 results** (receipt `knw_07df6019-50af-43fa-b988-6d12d4580dab`) · `fetch` `30-Systems/ESXi-Audit-Bridge/ESXI-AUDIT-BRIDGE-KB.md` **11,273 chars** (receipt `knw_614f98e0-5f02-4e28-8297-04dad5f7187f`) · read-only, governance passed |
+| Corroboration | tunnel dispatcher forwarded `openai-mcp-discover` + tool calls to `127.0.0.1:8792/mcp`; `~/agent-core-memory/logs/audit.jsonl` shows matching `KNOWLEDGE_QUERY` → `CONTEXT_READY` rows; the note measures exactly 11,273 chars on disk (`docs/evidence/chatgpt-memory-bridge-e2e-2026-11-02.md`) |
+| Capability | `mcp.obsidian-memory` **ACTIVE** (was `PLANNED`) · `operations: ["READ"]` · evidence pointer in metadata |
+| Isolated services (user units) | `agent-core-memory.service` `127.0.0.1:8794` (identity `memory-bridge`, scope `context` only) · `memory-bridge.service` `127.0.0.1:8792` · `memory-bridge-tunnel.service` → `127.0.0.1:8795` | 
+| Tunnel | `tunnel-client` v0.0.19 · profile `vault` · `/readyz` = `ready` · control-plane poll successful · `GET /v1/tunnels/<id>` 200 |
+| Production | untouched: `agent-core.service` `:8787` 200 · `agent-core-groq-staging.service` `:8788` 200 · `current` → `releases/5ae20af` |
+| Cloudflare | untouched: `cloudflared` active since 2026-09-23, `/etc/cloudflared/config.yml` mtime unchanged · no new hostname, no public port |
+| Vault | read-only throughout · 152 notes, hashes unchanged across every QA run |
+| Citation UI | **UNVERIFIED** — tools return a non-empty `obsidian://` url (verified); ChatGPT rendering not observed. Owner screenshot requested |
+| Rollback | `systemctl --user disable --now memory-bridge-tunnel memory-bridge agent-core-memory` + delete the three units; `git revert` the activation commit |
+
+---
+
 ## Evening closeout — 2026-10-21 22:40 +07 (VPS 237)
 
 **Verdict: PASS** for Hermes → production Jev and Hermes → staging multi-provider. Production inference stays closed. This section supersedes the morning port table below.

@@ -67,6 +67,23 @@ shape returned both as `structuredContent` and as a JSON string in `content[]`.
    planted in the vault cannot point outside it; the directory walk uses `lstatSync` and skips symlinks
    entirely, so linked content is never indexed.
 
+## Activation (2026-11-02)
+
+`mcp.obsidian-memory` moved from `PLANNED` to **`ACTIVE`** once the enable condition in its metadata was met —
+deployed, tunnel ready, and a real ChatGPT session calling the tools. First end-to-end evidence:
+
+- ChatGPT plugin **AI-OS Obsidian Memory** (custom MCP server, Connection = Tunnel, No authentication)
+- `search` → 8 results, receipt `knw_07df6019-50af-43fa-b988-6d12d4580dab`
+- `fetch` → `30-Systems/ESXi-Audit-Bridge/ESXI-AUDIT-BRIDGE-KB.md`, 11,273 chars, receipt
+  `knw_614f98e0-5f02-4e28-8297-04dad5f7187f`
+- Corroborated on the host: tunnel dispatcher forwarding `openai-mcp-discover` + tool calls to
+  `127.0.0.1:8792/mcp`, matching `KNOWLEDGE_QUERY` / `CONTEXT_READY` audit rows, and the fetched note measuring
+  exactly 11,273 characters on disk. Details: `docs/evidence/chatgpt-memory-bridge-e2e-2026-11-02.md`.
+
+Reach is tunnel-only: the bridge still binds loopback, no Cloudflare hostname was added and no public port
+exists. `CITATION_UI` stays **UNVERIFIED** — the tool contract returns a non-empty `url` (verified), but nobody
+has observed ChatGPT render it as a clickable citation.
+
 ## Consequences
 
 - ChatGPT can be given curated, redacted, receipted context without a second knowledge stack, and the vault

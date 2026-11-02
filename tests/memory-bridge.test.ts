@@ -57,11 +57,14 @@ afterAll(() => {
 });
 
 describe("capability registration", () => {
-  it("is registered read-only and stays PLANNED until it is deployed and connected", () => {
+  it("is registered read-only and ACTIVE only with recorded E2E evidence", () => {
     const capability = createDefaultCapabilityRegistry().get("mcp.obsidian-memory");
     expect(capability?.kind).toBe("MCP");
     expect(capability?.operations).toEqual(["READ"]);
-    expect(capability?.status).toBe("PLANNED");
+    expect(capability?.status).toBe("ACTIVE");
+    // An ACTIVE claim has to carry the evidence that justified it.
+    expect(capability?.metadata.activation_evidence).toBe("docs/evidence/chatgpt-memory-bridge-e2e-2026-11-02.md");
+    expect(capability?.metadata.activated_at).toBe("2026-11-02");
     expect(capability?.metadata.read_only).toBe(true);
     expect(capability?.metadata.vault_write).toBe("deny");
   });

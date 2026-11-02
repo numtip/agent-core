@@ -235,6 +235,63 @@ const defaultCapabilities: Capability[] = [
       control_plane_execution: false,
       vps_execution: false
     }
+  },
+  {
+    id: "skill.obsidian-markdown",
+    kind: "SKILL",
+    description: "Obsidian Flavored Markdown authoring: wikilinks, embeds, callouts, properties, tags, math, Mermaid and footnotes. Documentation-only skill (no executable payload) installed into the Hermes runtime.",
+    tags: ["skill", "obsidian", "markdown", "notes", "knowledge", "documentation", "vault"],
+    operations: ["READ", "WRITE"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 70,
+    metadata: {
+      phase: "SKILLS-ADOPTION-V1",
+      runtime: "hermes",
+      skill_path: "note-taking/obsidian-markdown/SKILL.md",
+      install_method: "hermes skills install (skills.sh)",
+      upstream_repo: "https://github.com/kepano/obsidian-skills",
+      upstream_commit: "3ccff5338ea700537839b21900aa5358a0402c98",
+      license: "MIT",
+      references: ["references/CALLOUTS.md", "references/EMBEDS.md", "references/PROPERTIES.md"],
+      payload: "markdown-only",
+      write_scope: "markdown-files",
+      // The owner's rule is unchanged by this capability: QA and CI never write into the live vault.
+      vault_write_requires_explicit_request: true,
+      authority: "CONTEXT_ONLY",
+      validation_evidence: "docs/evidence/skills-adoption-2026-11-02.md"
+    }
+  },
+  {
+    id: "skill.defuddle",
+    kind: "SKILL",
+    description: "Extract clean readable Markdown from HTML pages via the Defuddle CLI (version pinned), removing navigation and clutter before content enters context.",
+    tags: ["skill", "defuddle", "web", "extraction", "markdown", "context", "tokens"],
+    operations: ["READ", "EXTERNAL"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 65,
+    metadata: {
+      phase: "SKILLS-ADOPTION-V1",
+      runtime: "hermes",
+      skill_path: "note-taking/defuddle/SKILL.md",
+      install_method: "hermes skills install (skills.sh)",
+      upstream_repo: "https://github.com/kepano/obsidian-skills",
+      upstream_commit: "3ccff5338ea700537839b21900aa5358a0402c98",
+      license: "MIT",
+      payload: "markdown-only",
+      required_cli: "defuddle",
+      cli_version_pinned: "0.19.6",
+      cli_install: "npm install -g defuddle@0.19.6",
+      // Local delta from upstream: upstream SKILL.md documents an unpinned global npm install,
+      // which the skills-guard scanner flags as MEDIUM supply_chain. The vendored copy pins the version.
+      upstream_delta: "SKILL.md install line pinned to 0.19.6",
+      network_egress: "target-url-only, no credentials",
+      authority: "CONTEXT_ONLY",
+      validation_evidence: "docs/evidence/skills-adoption-2026-11-02.md"
+    }
   }
 ];
 

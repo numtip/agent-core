@@ -239,9 +239,12 @@ const defaultCapabilities: Capability[] = [
   {
     id: "skill.obsidian-markdown",
     kind: "SKILL",
-    description: "Obsidian Flavored Markdown authoring: wikilinks, embeds, callouts, properties, tags, math, Mermaid and footnotes. Documentation-only skill (no executable payload) installed into the Hermes runtime.",
+    description: "Obsidian Flavored Markdown authoring guidance: wikilinks, embeds, callouts, properties, tags, math, Mermaid and footnotes. Documentation-only skill (no executable payload) installed into the Hermes runtime.",
     tags: ["skill", "obsidian", "markdown", "notes", "knowledge", "documentation", "vault"],
-    operations: ["READ", "WRITE"],
+    // READ only, deliberately: nothing in the router branches on kind, so declaring WRITE would make this
+    // entry routable for write requests of every project — and a context-only note style guide should never
+    // be the capability that authorises a write. Actual file writes stay with tool.git / the runtime file tools.
+    operations: ["READ"],
     projects: ["*"],
     risk: "LOW",
     status: "ACTIVE",
@@ -256,8 +259,9 @@ const defaultCapabilities: Capability[] = [
       license: "MIT",
       references: ["references/CALLOUTS.md", "references/EMBEDS.md", "references/PROPERTIES.md"],
       payload: "markdown-only",
-      write_scope: "markdown-files",
-      // The owner's rule is unchanged by this capability: QA and CI never write into the live vault.
+      // Declarative only — metadata is a free-form z.record with no reader in src/. These keys record intent
+      // for humans and for future gating; they are NOT enforced by code today.
+      declared_write_scope: "markdown-files",
       vault_write_requires_explicit_request: true,
       authority: "CONTEXT_ONLY",
       validation_evidence: "docs/evidence/skills-adoption-2026-11-02.md"

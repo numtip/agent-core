@@ -19,7 +19,14 @@ describe("SKILL capabilities", () => {
     expect(registry.get("skill.defuddle")?.metadata.cli_version_pinned).toBe("0.19.6");
   });
 
-  it("declares no destructive or write operation for defuddle", () => {
+  it("declares no mutating operation at all", () => {
+    // The router does not branch on kind, so a declared WRITE would be routable for every project.
+    for (const id of ["skill.obsidian-markdown", "skill.defuddle"]) {
+      const operations = registry.get(id)?.operations ?? [];
+      expect(operations).not.toContain("WRITE");
+      expect(operations).not.toContain("DESTRUCTIVE");
+    }
+    expect(registry.get("skill.obsidian-markdown")?.operations).toEqual(["READ"]);
     expect(registry.get("skill.defuddle")?.operations).toEqual(["READ", "EXTERNAL"]);
   });
 
@@ -30,9 +37,13 @@ describe("SKILL capabilities", () => {
     const externalIds = registry.candidates({ project: "goffice2026", operation: "EXTERNAL" }).map((c) => c.id);
     expect(externalIds).toContain("skill.defuddle");
     expect(externalIds).not.toContain("skill.obsidian-markdown");
+
+    const writeIds = registry.candidates({ project: "goffice2026", operation: "WRITE" }).map((c) => c.id);
+    expect(writeIds).not.toContain("skill.obsidian-markdown");
+    expect(writeIds).not.toContain("skill.defuddle");
   });
 
-  it("keeps vault writes under the hard policy gate instead of bypassing it", () => {
+  it("keeps the hard policy as the only write gate, not the skill metadata", () => {
     expect(evaluateHardPolicy({ project: "goffice2026", operation: "WRITE", environment: "production" }).disposition).toBe("ASK");
     expect(evaluateHardPolicy({ project: "goffice2026", operation: "READ", targets: ["obsidian-vault/notes/x.md"] }).disposition).toBe("ALLOW");
     expect(evaluateHardPolicy({ project: "goffice2026", operation: "READ", targets: [".env"] }).disposition).toBe("DENY");

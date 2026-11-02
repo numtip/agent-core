@@ -73,24 +73,31 @@ npx vitest run tests/skill-capabilities.test.ts -> 5 passed
 ## F. Live routing evidence (in-process Fastify inject, this branch, no service restarted)
 
 ```
-HTTP /v2/capabilities -> 200 | total: 14
-SKILL entries:
- { "id": "skill.obsidian-markdown", "status": "ACTIVE", "ops": ["READ","WRITE"],  "commit": "3ccff533…402c98" }
- { "id": "skill.defuddle",          "status": "ACTIVE", "ops": ["READ","EXTERNAL"], "commit": "3ccff533…402c98" }
+GET /v2/capabilities -> 200 | total: 14 | SKILL:
+  [{"id":"skill.obsidian-markdown","ops":["READ"],"status":"ACTIVE"},
+   {"id":"skill.defuddle","ops":["READ","EXTERNAL"],"status":"ACTIVE"}]
 GET /v2/capabilities/skill.defuddle -> 200 skill.defuddle
 
-search q=defuddle           -> 200 | count: 1 | ids: ["skill.defuddle"]
-search q=callout            -> 200 | count: 1 | ids: ["skill.obsidian-markdown"]
-route SKILL read (defuddle) -> 200 | disposition: ROUTE         | ids: ["skill.defuddle"]
-route SKILL write (note)    -> 200 | disposition: ROUTE         | ids: ["skill.obsidian-markdown"]
-route SKILL write prod      -> 200 | disposition: HUMAN_REVIEW  | ids: []
-route READ secret target    -> 200 | disposition: HUMAN_REVIEW  | policy: DENY SECRET_OR_CREDENTIAL_TARGET
+search q=defuddle               -> 200 | ids: ["skill.defuddle"]
+search q=callout                -> 200 | ids: ["skill.obsidian-markdown"]
+route READ     kinds=[SKILL]    -> 200 | disposition: ROUTE         | ids: ["skill.defuddle"]
+route EXTERNAL kinds=[SKILL]    -> 200 | disposition: ROUTE         | ids: ["skill.defuddle"]
+route WRITE    kinds=[SKILL]    -> 200 | disposition: NO_MATCH      | ids: []
+route WRITE + environment=production + preferred_tags=[obsidian]
+                                -> 200 | disposition: HUMAN_REVIEW  | ids: []
+route READ targets=[".env"]     -> 200 | disposition: HUMAN_REVIEW  | policy: DENY SECRET_OR_CREDENTIAL_TARGET
 ```
 
-Interpretation: project scope (`goffice2026`) reaches both skills; the production-write and
-secret-target hard policies still gate them; `skill.defuddle` can never be routed for `WRITE`
-(operation not declared). Note `search` matches the whole query string as one substring, so multi-word
-queries return 0 — existing engine behaviour, unchanged by this work.
+Interpretation: project scope (`goffice2026`) reaches both skills for read/extraction work; **no `SKILL`
+capability can be selected for a `WRITE`** — the entries declare none — so authorising a write still
+requires a capability that actually declares `WRITE`, and the production-write and secret-target hard
+policies keep gating that path. Note `search` matches the whole query string as one substring, so
+multi-word queries return 0 — existing engine behaviour, unchanged by this work.
+
+Revision note: the first revision of this branch declared `READ, WRITE` on `skill.obsidian-markdown` and
+a live probe showed `route WRITE` selecting it — i.e. a context-only style guide would have been the
+capability authorising a write for every project. Fixed to `READ` before merge; the probe above is the
+post-fix run.
 
 ## G. Not verified / open
 

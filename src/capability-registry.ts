@@ -25,9 +25,25 @@ export const capabilitySchema = z.object({
   status: capabilityStatusSchema.default("ACTIVE"),
   priority: z.number().int().min(0).max(100).default(50),
   metadata: z.record(z.string(), z.unknown()).default({})
+}).superRefine((capability, ctx) => {
+  // A SKILL is documentation loaded into an agent runtime: it can inform a decision, it cannot perform the
+  // write. Nothing in the router branches on `kind`, so a declared WRITE would be routable for every project
+  // in `projects`. Enforced in the schema so register(), upsert() and the default registry all obey it.
+  if (capability.kind !== "SKILL") return;
+  for (const forbidden of ["WRITE", "DESTRUCTIVE"] as const) {
+    if (capability.operations.includes(forbidden)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `SKILL_OPERATION_FORBIDDEN:${capability.id}:${forbidden}`,
+        path: ["operations"]
+      });
+    }
+  }
 });
 
 export type Capability = z.infer<typeof capabilitySchema>;
+// What a caller may hand in: defaults (tags/projects/risk/status/priority/metadata) are optional.
+export type CapabilityInput = z.input<typeof capabilitySchema>;
 export type CapabilityKind = z.infer<typeof capabilityKindSchema>;
 export type Operation = z.infer<typeof operationSchema>;
 
@@ -306,14 +322,14 @@ export class CapabilityRegistry {
     for (const capability of initial) this.register(capability);
   }
 
-  register(input: Capability): Capability {
+  register(input: CapabilityInput): Capability {
     const capability = capabilitySchema.parse(input);
     if (this.capabilities.has(capability.id)) throw new Error(`CAPABILITY_EXISTS:${capability.id}`);
     this.capabilities.set(capability.id, capability);
     return capability;
   }
 
-  upsert(input: Capability): Capability {
+  upsert(input: CapabilityInput): Capability {
     const capability = capabilitySchema.parse(input);
     this.capabilities.set(capability.id, capability);
     return capability;

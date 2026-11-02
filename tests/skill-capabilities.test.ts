@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultCapabilityRegistry } from "../src/capability-registry.js";
+import { CapabilityRegistry, capabilitySchema, createDefaultCapabilityRegistry } from "../src/capability-registry.js";
 import { evaluateHardPolicy } from "../src/policy.js";
 
 const registry = createDefaultCapabilityRegistry();
@@ -41,6 +41,32 @@ describe("SKILL capabilities", () => {
     const writeIds = registry.candidates({ project: "goffice2026", operation: "WRITE" }).map((c) => c.id);
     expect(writeIds).not.toContain("skill.obsidian-markdown");
     expect(writeIds).not.toContain("skill.defuddle");
+  });
+
+  it("rejects a SKILL that declares WRITE or DESTRUCTIVE at schema level", () => {
+    for (const operation of ["WRITE", "DESTRUCTIVE"] as const) {
+      const attempt = capabilitySchema.safeParse({
+        id: "skill.bad",
+        kind: "SKILL",
+        description: "should not exist",
+        operations: ["READ", operation]
+      });
+      expect(attempt.success).toBe(false);
+      expect(JSON.stringify(attempt.error?.issues)).toContain(`SKILL_OPERATION_FORBIDDEN:skill.bad:${operation}`);
+    }
+  });
+
+  it("enforces the prohibition through register() and upsert(), not only via the default registry", () => {
+    const registry = new CapabilityRegistry([]);
+    const base = { id: "skill.rogue", kind: "SKILL" as const, description: "rogue", operations: ["WRITE" as const] };
+    expect(() => registry.register(base)).toThrow(/SKILL_OPERATION_FORBIDDEN/);
+    expect(() => registry.upsert(base)).toThrow(/SKILL_OPERATION_FORBIDDEN/);
+    expect(registry.get("skill.rogue")).toBeUndefined();
+  });
+
+  it("still allows a SKILL that only reads or reaches the network", () => {
+    const registry = new CapabilityRegistry([]);
+    expect(registry.register({ id: "skill.ok", kind: "SKILL", description: "ok", operations: ["READ", "EXTERNAL"] }).id).toBe("skill.ok");
   });
 
   it("keeps the hard policy as the only write gate, not the skill metadata", () => {

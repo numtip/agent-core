@@ -41,11 +41,17 @@ the capability registry stops being blind to skills the Hermes runtime actually 
    | `skill.obsidian-markdown` | SKILL | READ | LOW | ACTIVE | 70 |
    | `skill.defuddle` | SKILL | READ, EXTERNAL | LOW | ACTIVE | 65 |
 
-   **Neither entry declares `WRITE` or `DESTRUCTIVE`, deliberately.** Nothing in the router branches on
-   `kind` — `SKILL` exists only in the enum — so a declared `WRITE` would make the entry routable for
-   write requests from every project (`projects: ["*"]`), and the hard policy would only catch
-   production / dbplant / destructive / secret-target cases. A context-only style guide must not be the
-   capability that authorises a write; real file writes stay with `tool.git` and the runtime file tools.
+   **Neither entry declares `WRITE` or `DESTRUCTIVE`, and the schema now forbids it for every SKILL.**
+   Nothing in the router branches on `kind` — `SKILL` exists only in the enum — so a declared `WRITE`
+   would make the entry routable for write requests from every project (`projects: ["*"]`), and the
+   hard policy would only catch production / dbplant / destructive / secret-target cases. A context-only
+   style guide must not be the capability that authorises a write; real file writes stay with `tool.git`
+   and the runtime file tools.
+
+   The prohibition is enforced in `capabilitySchema.superRefine`, so it is registry-wide: `register()`,
+   `upsert()`, the default registry at boot and any future caller all reject `SKILL` +
+   `WRITE|DESTRUCTIVE` with `SKILL_OPERATION_FORBIDDEN:<id>:<operation>`. `register`/`upsert` now take
+   `CapabilityInput` (`z.input`, defaults optional) — the accurate signature for a function that parses.
 
    Both `projects: ["*"]` like the existing `knowledge.*` handoff entries — no new project identity,
    no new adapter, no duplicate retrieval engine. `metadata` also carries `authority: CONTEXT_ONLY`,

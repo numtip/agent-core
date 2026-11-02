@@ -57,6 +57,31 @@ RESULT: ALL PASS
       Tests  17 passed (17)
 ```
 
+
+## C2. Reused retrieval path, verified before the bridge was written
+
+`/v2/knowledge/query` is a governance gate, not a search engine: with no evidence it returns a **handoff**
+telling the client where to pull from, and with evidence it returns governed context. Both halves were run
+against the real vault before any bridge code existed:
+
+```
+STEP 1 no-evidence handler -> 200 HANDOFF MEMORY_STORE_READ_HANDOFF | capability: knowledge.memory-store | transport: PROJECT_CLIENT | client_steps: 3
+STEP 2 with 3 real vault notes -> 200 CONTEXT_READY | receipt: knw_834eef41-1822-4b37-af4b-aeeb8f2174c2 | blocked: 0
+    KEEP | 30-Systems/ESXi-Audit-Bridge/ESXI-AUDIT-BRIDGE-KB.md | 11273 chars
+    KEEP | 30-Systems/AI-OS/PROJECT_REGISTRY.md | 2374 chars
+    KEEP | 40-Decisions/2026-10-30-esxi-bridge-python-production-node-qa-reference.md | 2402 chars
+   provenance redaction: [{"id":"ESXI-AUDIT-BRIDGE-KB.md","redacted":false,"reasons":[]},{"id":"PROJECT_REGISTRY.md","redacted":false,"reasons":[]},{"id":"2026-10-30-esxi-bridge-python-production-node-qa-reference.md","redacted":true,"reasons":["bearer"]}]
+   guardrails: {"read_only":true,"knowledge_is_not_authority":true,"verify_source_of_truth_before_execution":true}```
+
+Readings:
+
+- The knowledge path already returns **source citations** (`id` = vault-relative path) plus a `receipt_id`, and
+  the context governor decides KEEP/COMPRESS/DROP per item — the bridge therefore adds no ranking of its own.
+- The `bearer` redaction hit is the existing `src/knowledge-redaction.ts` rule firing on the Jev decision note.
+  It is worth a look by the owner: that note contains a `Bearer …` string, redacted here but still present in
+  the vault file.
+- `knowledge_is_not_authority: true` and `read_only: true` are returned on every governed response.
+
 ## C. Readings
 
 - **Discovery**: `tools/list` returns exactly `search` and `fetch`, both read-only, both with an output schema.

@@ -25,9 +25,25 @@ export const capabilitySchema = z.object({
   status: capabilityStatusSchema.default("ACTIVE"),
   priority: z.number().int().min(0).max(100).default(50),
   metadata: z.record(z.string(), z.unknown()).default({})
+}).superRefine((capability, ctx) => {
+  // A SKILL is documentation loaded into an agent runtime: it can inform a decision, it cannot perform the
+  // write. Nothing in the router branches on `kind`, so a declared WRITE would be routable for every project
+  // in `projects`. Enforced in the schema so register(), upsert() and the default registry all obey it.
+  if (capability.kind !== "SKILL") return;
+  for (const forbidden of ["WRITE", "DESTRUCTIVE"] as const) {
+    if (capability.operations.includes(forbidden)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `SKILL_OPERATION_FORBIDDEN:${capability.id}:${forbidden}`,
+        path: ["operations"]
+      });
+    }
+  }
 });
 
 export type Capability = z.infer<typeof capabilitySchema>;
+// What a caller may hand in: defaults (tags/projects/risk/status/priority/metadata) are optional.
+export type CapabilityInput = z.input<typeof capabilitySchema>;
 export type CapabilityKind = z.infer<typeof capabilityKindSchema>;
 export type Operation = z.infer<typeof operationSchema>;
 
@@ -235,6 +251,67 @@ const defaultCapabilities: Capability[] = [
       control_plane_execution: false,
       vps_execution: false
     }
+  },
+  {
+    id: "skill.obsidian-markdown",
+    kind: "SKILL",
+    description: "Obsidian Flavored Markdown authoring guidance: wikilinks, embeds, callouts, properties, tags, math, Mermaid and footnotes. Documentation-only skill (no executable payload) installed into the Hermes runtime.",
+    tags: ["skill", "obsidian", "markdown", "notes", "knowledge", "documentation", "vault"],
+    // READ only, deliberately: nothing in the router branches on kind, so declaring WRITE would make this
+    // entry routable for write requests of every project — and a context-only note style guide should never
+    // be the capability that authorises a write. Actual file writes stay with tool.git / the runtime file tools.
+    operations: ["READ"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 70,
+    metadata: {
+      phase: "SKILLS-ADOPTION-V1",
+      runtime: "hermes",
+      skill_path: "note-taking/obsidian-markdown/SKILL.md",
+      install_method: "hermes skills install (skills.sh)",
+      upstream_repo: "https://github.com/kepano/obsidian-skills",
+      upstream_commit: "3ccff5338ea700537839b21900aa5358a0402c98",
+      license: "MIT",
+      references: ["references/CALLOUTS.md", "references/EMBEDS.md", "references/PROPERTIES.md"],
+      payload: "markdown-only",
+      // Declarative only — metadata is a free-form z.record with no reader in src/. These keys record intent
+      // for humans and for future gating; they are NOT enforced by code today.
+      declared_write_scope: "markdown-files",
+      vault_write_requires_explicit_request: true,
+      authority: "CONTEXT_ONLY",
+      validation_evidence: "docs/evidence/skills-adoption-2026-11-02.md"
+    }
+  },
+  {
+    id: "skill.defuddle",
+    kind: "SKILL",
+    description: "Extract clean readable Markdown from HTML pages via the Defuddle CLI (version pinned), removing navigation and clutter before content enters context.",
+    tags: ["skill", "defuddle", "web", "extraction", "markdown", "context", "tokens"],
+    operations: ["READ", "EXTERNAL"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "ACTIVE",
+    priority: 65,
+    metadata: {
+      phase: "SKILLS-ADOPTION-V1",
+      runtime: "hermes",
+      skill_path: "note-taking/defuddle/SKILL.md",
+      install_method: "hermes skills install (skills.sh)",
+      upstream_repo: "https://github.com/kepano/obsidian-skills",
+      upstream_commit: "3ccff5338ea700537839b21900aa5358a0402c98",
+      license: "MIT",
+      payload: "markdown-only",
+      required_cli: "defuddle",
+      cli_version_pinned: "0.19.6",
+      cli_install: "npm install -g defuddle@0.19.6",
+      // Local delta from upstream: upstream SKILL.md documents an unpinned global npm install,
+      // which the skills-guard scanner flags as MEDIUM supply_chain. The vendored copy pins the version.
+      upstream_delta: "SKILL.md install line pinned to 0.19.6",
+      network_egress: "target-url-only, no credentials",
+      authority: "CONTEXT_ONLY",
+      validation_evidence: "docs/evidence/skills-adoption-2026-11-02.md"
+    }
   }
 ];
 
@@ -245,14 +322,14 @@ export class CapabilityRegistry {
     for (const capability of initial) this.register(capability);
   }
 
-  register(input: Capability): Capability {
+  register(input: CapabilityInput): Capability {
     const capability = capabilitySchema.parse(input);
     if (this.capabilities.has(capability.id)) throw new Error(`CAPABILITY_EXISTS:${capability.id}`);
     this.capabilities.set(capability.id, capability);
     return capability;
   }
 
-  upsert(input: Capability): Capability {
+  upsert(input: CapabilityInput): Capability {
     const capability = capabilitySchema.parse(input);
     this.capabilities.set(capability.id, capability);
     return capability;

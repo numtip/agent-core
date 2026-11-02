@@ -47,6 +47,16 @@ shape returned both as `structuredContent` and as a JSON string in `content[]`.
    is the honest state: the registry must not route to a service that is not deployed and not connected.
    Promotion to `ACTIVE` is gated on deployment **and** a verified ChatGPT connection.
 
+## Reuse inventory (verified read-only before building)
+
+| Question | Finding |
+|---|---|
+| Is there an MCP server pattern in this repo? | Yes — `src/mcp-playwright.ts` is an outbound **client** over streamable HTTP with `McpUnavailableError` / `McpToolError` and an injected `DisabledMcpClient` fallback. Transport/error conventions copied; no server existed. |
+| Does anything already read the vault? | **No.** `OBSIDIAN_VAULT_PATH` is set and unread; `grep` over `src/` for obsidian/vault hits only `memory_store` string literals. `knowledge.memory-store` advertises `MEMORY_STORE_READ_HANDOFF` / `PROJECT_CLIENT` with client steps but has no implementation. |
+| Existing client of the same contract? | `agent-workspace/openwiki-knowledge-query.py` — selects passages, redacts, posts `evidence` to `/v2/knowledge/query`. This bridge is the same pattern for the vault. |
+| Existing `hermes-memory` MCP bridge? | None on this host; `~/.hermes/config.yaml` has no MCP client block (only `memory_enabled`, `memory_char_limit`). |
+| Modules to reuse instead of rewriting | `policy.ts`, `knowledge-redaction.ts`, `context-governor.ts`, `knowledge-fabric.ts`, `rate-limit.ts`, `auth.ts`, `telemetry.ts`. All reused by calling Agent Core rather than importing around the guards. |
+
 ## Consequences
 
 - ChatGPT can be given curated, redacted, receipted context without a second knowledge stack, and the vault
@@ -63,7 +73,7 @@ shape returned both as `structuredContent` and as a JSON string in `content[]`.
 |---|---|
 | Vector store + embeddings (the OpenAI sample server) | Duplicates knowledge infrastructure the Blueprint forbids; the vault is 148 notes. |
 | Reuse the Playwright MCP client path | That is a browser control plane, not a knowledge reader. |
-| Point ChatGPT straight at Agent Core `/v2/knowledge/query` | Its contract returns a **handoff** (`PROJECT_CLIENT`), not results; ChatGPT cannot perform the client step. |
+| Point ChatGPT straight at Agent Core `/v2/knowledge/query` | Its contract returns a **handoff** (`PROJECT_CLIENT`), not results; ChatGPT cannot perform the client step. This is exactly the gap the bridge fills. |
 | Build the bridge inside the Agent Core Fastify app | The knowledge surface is already guarded per-route; a second protocol on the same port would blur the auth model and force a production restart to ship. |
 
 ## Rollback

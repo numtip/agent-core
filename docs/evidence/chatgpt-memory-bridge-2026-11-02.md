@@ -82,6 +82,30 @@ Readings:
   the vault file.
 - `knowledge_is_not_authority: true` and `read_only: true` are returned on every governed response.
 
+## B2. Final run after the spec review (citations on, deny-bridge included)
+
+```
+PASS fetch carries governance receipt  [knw_064153dd-29bf-47b7-8e85-f932e7f8df00]
+PASS fetch declares knowledge-is-not-authority
+  token efficiency: fetch 24528 B vs vault 482498 B (5.313% of vault)
+PASS bad project token -> upstream 401 surfaced  [200 {'code': -32001, 'message': 'UNAUTHORIZED'}]
+PASS traversal blocked for ../../etc/passwd
+PASS traversal blocked for /etc/passwd
+PASS Accept: text/event-stream -> SSE frame  [200 text/event-stream; charset=utf-8]
+PASS unknown tool is a tool error, no write path
+PASS unknown method -> -32601
+PASS vault untouched (all notes hashed)  [149 notes, 0 changed]
+
+RESULT: ALL PASS
+--- newest vault files
+2026-11-02 11:03:34.817461414 +0700 /home/prinyaroot/obsidian-vault/40-Decisions/JEV-LEDGER.md
+2026-11-02 11:03:34.816461414 +0700 /home/prinyaroot/obsidian-vault/40-Decisions/2026-11-02-jev-merge-pr-numtip-agent-core-pr49-hold.md
+2026-11-02 10:38:44.837255137 +0700 /home/prinyaroot/obsidian-vault/40-Decisions/2026-11-02-jev-merge-pr-numtip-agent-core-pr48-hold.md```
+
+Vault note count moved 147 → 149 during the session because an automation writes Jev decision records into
+`40-Decisions/` when a PR is opened (`2026-11-02-jev-merge-pr-...-pr49-hold.md`, mtime 11:03:34). No file in
+the vault was written by the bridge or by this work; the QA hash check is what proves that.
+
 ## C. Readings
 
 - **Discovery**: `tools/list` returns exactly `search` and `fetch`, both read-only, both with an output schema.

@@ -1,3 +1,4 @@
+import { basename, resolve } from "node:path";
 import { agentCoreKnowledgeQuery, startMemoryBridge } from "./memory-bridge.js";
 
 /**
@@ -18,7 +19,12 @@ const agentCoreUrl = env.AGENT_CORE_URL ?? "http://127.0.0.1:8787";
 const host = env.MEMORY_BRIDGE_HOST ?? "127.0.0.1";
 const port = Number(env.MEMORY_BRIDGE_PORT ?? "8792");
 const bearerToken = env.MEMORY_BRIDGE_BEARER_TOKEN ?? null;
-const citationBase = env.MEMORY_BRIDGE_CITATION_BASE ?? null;
+// Citations need a non-empty url (OpenAI creates citation metadata only then). Without a public https base the
+// honest user-openable target is the Obsidian deep link for that note — set MEMORY_BRIDGE_CITATION_BASE to
+// override it with an https base once the vault is served read-only.
+const citationBase =
+  env.MEMORY_BRIDGE_CITATION_BASE ??
+  `obsidian://open?vault=${encodeURIComponent(basename(resolve(vaultPath || ".")))}&file=`;
 
 function fail(message: string): never {
   console.error(JSON.stringify({ level: "error", component: "memory-bridge", message }));

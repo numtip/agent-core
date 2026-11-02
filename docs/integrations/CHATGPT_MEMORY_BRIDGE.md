@@ -47,7 +47,33 @@ Conformance in this implementation:
 | `readOnlyHint: true`, `destructiveHint: false` | annotations on both tools |
 | `initialize` / `tools/list` / `tools/call` / `ping` | JSON-RPC dispatcher |
 | streaming HTTP | `POST /mcp`, JSON by default, SSE frame when `Accept: text/event-stream` |
-| citation-ready `url` | only when `MEMORY_BRIDGE_CITATION_BASE` is set — no fake links are emitted |
+| citation-ready `url` | always non-empty: default is the `obsidian://open?vault=…&file=…` deep link; override with `MEMORY_BRIDGE_CITATION_BASE` (https) when the vault is served read-only |
+| protocol version echo | `initialize` returns the version the client asked for when it is one of `2024-11-05`, `2025-03-26`, `2025-06-18`, `2025-11-25` |
+| `openWorldHint: false` | correct: a tool call reads the local vault plus loopback Agent Core, never the internet |
+| `GET` / `DELETE` on `/mcp` | `405` with `allow: POST` — a stateless server has no stream to open and nothing to delete |
+
+### Protocol era
+
+The current MCP revision is `2026-07-28`, which removed the `initialize` handshake
+("There is no negotiation handshake" — modelcontextprotocol.io/specification/2026-07-28/basic/versioning).
+OpenAI's connector and API documents still describe the legacy lifecycle (`initialize` +
+`notifications/initialized`), so this adapter implements the legacy handshake and echoes the requested
+version. Do not add `server/discover` or `_meta` handling until a real ChatGPT session is observed sending it.
+
+## Why this is not a duplicate
+
+Verified read-only on this host (2026-11-02):
+
+- `knowledge.memory-store` already existed as a **capability and a handoff contract**
+  (`src/knowledge-fabric.ts` returns `MEMORY_STORE_READ_HANDOFF` with `transport: PROJECT_CLIENT` and the
+  client steps "read project memory snapshots", "re-post governed evidence"), but **no code anywhere read
+  the vault**. `OBSIDIAN_VAULT_PATH` was set and unread; there is no MCP client block in
+  `~/.hermes/config.yaml` and no `hermes-memory` bridge on this host.
+- The OpenWiki path has exactly this shape of client already: `agent-workspace/openwiki-knowledge-query.py`
+  selects passages and posts them as `evidence` to `/v2/knowledge/query`.
+- So the bridge is not a new engine: it is the missing `PROJECT_CLIENT` implementation for the vault,
+  following the existing OpenWiki client pattern, with `src/knowledge-redaction.ts`,
+  `src/context-governor.ts` and `src/policy.ts` doing the work.
 
 ## Architecture
 
@@ -113,8 +139,13 @@ WantedBy=default.target
 Server readiness is not the same as a ChatGPT connection. Nothing is exposed today. To connect, an owner
 must, in order:
 
-1. Decide the inbound auth model — OAuth (CIMD/DCR, preferred by OpenAI) or a static bearer token.
-2. Add a hostname/path on the **existing** Cloudflare tunnel to `127.0.0.1:8792` (a CF config change).
+1. Decide the inbound auth model — OAuth (CIMD/DCR, preferred by OpenAI; note ChatGPT cannot present custom
+   API keys or client-credentials grants) or a static bearer token.
+2. Add an ingress rule on the **existing** Cloudflare tunnel to `127.0.0.1:8792`. Current state of
+   `/etc/cloudflared/config.yml` (read-only inspection): flat ingress list, `agent.raemanagemju.net` ->
+   `http://127.0.0.1:8787`, `webhook.raemanagemju.net` -> `:8644`, handbook -> `:8097`, catch-all `404`.
+   There is **no path-based split**, and staging `:8788` has no hostname at all - so a bridge route means a
+   real CF change, and the file already carries ~20 hand-made `.bak` copies: change it as a reviewed diff.
 3. Set `MEMORY_BRIDGE_BEARER_TOKEN` (or front it with an OAuth proxy) and only then bind beyond loopback.
 4. Add the server in ChatGPT: Plugins → **Add custom MCP server** → server URL `/mcp`.
 5. Verify with a real prompt that `search` and `fetch` are called and citations resolve.

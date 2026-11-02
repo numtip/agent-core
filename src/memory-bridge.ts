@@ -37,6 +37,7 @@ export type MemoryBridgeOptions = {
 };
 
 const PROTOCOL_VERSION = "2025-06-18";
+const SUPPORTED_PROTOCOL_VERSIONS = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 const SERVER_INFO = { name: "obsidian-memory-bridge", version: "1.0.0" };
 
 const rpcOk = (id: unknown, result: unknown) => ({ jsonrpc: "2.0" as const, id, result });
@@ -159,8 +160,12 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
     "content-type": "application/json"
   };
 
-  const citationFor = (rel: string) =>
-    citationBase ? `${citationBase.replace(/\/$/, "")}/${rel.split("/").map(encodeURIComponent).join("/")}` : undefined;
+  // A base ending in "/" or "=" is used as-is (https path vs obsidian://open?...&file=), otherwise "/" joins.
+  const citationFor = (rel: string) => {
+    if (!citationBase) return undefined;
+    const sep = /[\/=]$/.test(citationBase) ? "" : "/";
+    return `${citationBase}${sep}${rel.split("/").map(encodeURIComponent).join("/")}`;
+  };
 
   function governed(body: Record<string, unknown>) {
     return options.knowledgeQuery(body, headers);
@@ -300,7 +305,7 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
         },
         required: ["results"]
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     {
       name: "fetch",
@@ -324,7 +329,7 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
         },
         required: ["id", "title", "text"]
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     }
   ];
 
@@ -335,13 +340,17 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
   async function handleRpc(message: any, reply: FastifyReply): Promise<any> {
     const { id = null, method, params } = message ?? {};
     switch (method) {
-      case "initialize":
+      case "initialize": {
+        // Echo the version the client asked for when we speak it; OpenAI still uses the legacy handshake.
+        const asked = typeof params?.protocolVersion === "string" ? params.protocolVersion : null;
+        const negotiated = asked && SUPPORTED_PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSION;
         return rpcOk(id, {
-          protocolVersion: PROTOCOL_VERSION,
+          protocolVersion: negotiated,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { ...SERVER_INFO, version },
           instructions
         });
+      }
       case "notifications/initialized":
       case "notifications/cancelled":
         reply.code(202);
@@ -422,9 +431,15 @@ export function createMemoryBridge(options: MemoryBridgeOptions) {
     return reply.code(200).send(body);
   });
 
-  app.get("/mcp", async (_request, reply) =>
-    reply.code(405).send(rpcErr(null, -32000, "SSE_STREAM_NOT_SUPPORTED: use POST /mcp"))
-  );
+  // Stateless server: no server-initiated stream, nothing to delete. Answer explicitly instead of 404.
+  for (const method of ["GET", "DELETE"] as const) {
+    app.route({
+      method,
+      url: "/mcp",
+      handler: async (_request, reply) =>
+        reply.code(405).header("allow", "POST").send(rpcErr(null, -32000, `METHOD_NOT_SUPPORTED: use POST /mcp`))
+    });
+  }
 
   return app;
 }

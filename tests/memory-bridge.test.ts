@@ -71,6 +71,28 @@ describe("MCP discovery", () => {
     expect(body.result.instructions.length).toBeGreaterThan(20);
   });
 
+  it("echoes the protocol version the client asked for when it is supported", async () => {
+    for (const asked of ["2025-11-25", "2025-03-26"]) {
+      const body = (await call({ jsonrpc: "2.0", id: 100, method: "initialize", params: { protocolVersion: asked } })).json();
+      expect(body.result.protocolVersion).toBe(asked);
+    }
+    const unknown = (await call({ jsonrpc: "2.0", id: 101, method: "initialize", params: { protocolVersion: "1999-01-01" } })).json();
+    expect(unknown.result.protocolVersion).toBe("2025-06-18");
+  });
+
+  it("annotates both tools with openWorldHint:false (no internet access from a tool call)", async () => {
+    const body = (await call({ jsonrpc: "2.0", id: 102, method: "tools/list" })).json();
+    for (const tool of body.result.tools) expect(tool.annotations.openWorldHint).toBe(false);
+  });
+
+  it("answers GET and DELETE on /mcp with 405 instead of 404", async () => {
+    for (const method of ["GET", "DELETE"] as const) {
+      const res = await app.inject({ method, url: "/mcp" });
+      expect(res.statusCode).toBe(405);
+      expect(res.headers.allow).toBe("POST");
+    }
+  });
+
   it("accepts the initialized notification without a body", async () => {
     const res = await call({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(res.statusCode).toBe(202);
@@ -114,6 +136,10 @@ describe("search", () => {
     const cited = createMemoryBridge({ vaultPath: vault, knowledgeQuery: govern, projectId: "goffice2026", projectToken: "t", citationBase: "https://kb.example.test/notes" });
     const withUrl = (await cited.inject({ method: "POST", url: "/mcp", payload: { jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "search", arguments: { query: "unix socket" } } } as any })).json();
     expect(withUrl.result.structuredContent.results[0].url).toBe("https://kb.example.test/notes/30-Systems/ESXI-AUDIT-BRIDGE.md");
+
+    const deepLink = createMemoryBridge({ vaultPath: vault, knowledgeQuery: govern, projectId: "p", projectToken: "t", citationBase: "obsidian://open?vault=vault&file=" });
+    const viaObsidian = (await deepLink.inject({ method: "POST", url: "/mcp", payload: { jsonrpc: "2.0", id: 103, method: "tools/call", params: { name: "search", arguments: { query: "unix socket" } } } as any })).json();
+    expect(viaObsidian.result.structuredContent.results[0].url).toBe("obsidian://open?vault=vault&file=30-Systems/ESXI-AUDIT-BRIDGE.md");
   });
 
   it("respects the result cap and returns an empty list for a miss", async () => {

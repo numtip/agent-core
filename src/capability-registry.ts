@@ -253,6 +253,34 @@ const defaultCapabilities: Capability[] = [
     }
   },
   {
+    id: "mcp.obsidian-memory",
+    kind: "MCP",
+    description: "Read-only MCP bridge that exposes the Obsidian vault to ChatGPT deep research and company knowledge as the two tools they require: search and fetch. Retrieval is a bounded vault scan; redaction, hard policy and context ranking are served by this same Agent Core via /v2/knowledge/query.",
+    tags: ["knowledge", "obsidian", "vault", "mcp", "chatgpt", "search", "fetch", "readonly", "context"],
+    operations: ["READ"],
+    projects: ["*"],
+    risk: "LOW",
+    status: "PLANNED",
+    priority: 74,
+    metadata: {
+      phase: "MEMORY-BRIDGE-V1",
+      execution_mode: "HANDOFF",
+      transport: "STREAMABLE_HTTP",
+      authority: "CONTEXT_ONLY",
+      read_only: true,
+      entrypoint: "src/memory-bridge-cli.ts",
+      endpoint: "http://127.0.0.1:8792/mcp",
+      tools: ["search", "fetch"],
+      governance_upstream: "/v2/knowledge/query",
+      requires: ["MEMORY_BRIDGE_PROJECT", "MEMORY_BRIDGE_PROJECT_TOKEN", "OBSIDIAN_VAULT_PATH"],
+      // No write path exists in the adapter; vault access is read-only by construction.
+      vault_write: "deny",
+      public_exposure: "not exposed: requires owner-approved Cloudflare route + OAuth or bearer gate",
+      enable_condition: "flip status to ACTIVE only after the bridge is deployed AND a real ChatGPT connection is verified",
+      docs: "docs/integrations/CHATGPT_MEMORY_BRIDGE.md"
+    }
+  },
+  {
     id: "skill.obsidian-markdown",
     kind: "SKILL",
     description: "Obsidian Flavored Markdown authoring guidance: wikilinks, embeds, callouts, properties, tags, math, Mermaid and footnotes. Documentation-only skill (no executable payload) installed into the Hermes runtime.",
